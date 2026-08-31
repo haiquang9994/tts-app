@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -82,6 +83,22 @@ _PROTECT = re.compile("|".join((
         re.escape(t) for t in sorted(TERMS, key=len, reverse=True)
     ),
 )))
+
+# Dấu Markdown đứng đầu đoạn.
+#
+# ĐO ĐƯỢC: có những đoạn bắt đầu bằng "##" mà MyMemory trả về NGUYÊN VĂN,
+# không dịch gì cả. Cùng đoạn đó bỏ "##" đi thì dịch bình thường, lặp lại 3/3
+# lần. Nhưng KHÔNG phải mọi đoạn có "##" đều hỏng: đoạn ngắn thì không sao, và
+# một tiêu đề dài 130 ký tự toàn văn xuôi cũng không sao. Điều kiện kích hoạt
+# chính xác chưa mô tả được — có vẻ cần cả dấu đầu đoạn lẫn nội dung nhiều ký
+# hiệu.
+#
+# Nên việc tách dấu ở đây là phòng thủ: nó vô hại với đoạn vốn đã dịch được, và
+# cứu được đoạn hỏng. Cố ý KHÔNG viết test khẳng định kiểu hỏng của MyMemory —
+# một test như vậy phụ thuộc vào thứ ta chưa hiểu hết nên sẽ đỏ ngẫu nhiên.
+_LEADING_MARKUP = re.compile(
+    r"^(?:#{1,6}(?:\s+|$)|[-*+](?:\s+|$)|>\s*|\d{1,3}[.)](?:\s+|$))+"
+)
 
 Fetcher = Callable[[str], str]
 
@@ -204,24 +221,32 @@ async def translate(
 
     async def translate_one(chunk: str) -> str:
         nonlocal failures, hits, quota_gone
-        expected = [key for key in saved if key in chunk]
+        marker = _LEADING_MARKUP.match(chunk)
+        prefix = marker.group(0) if marker else ""
+        body = chunk[len(prefix):]
+        if not body.strip():
+            # Cả đoạn chỉ là dấu Markdown, ví dụ số thứ tự "2." bị tách rời.
+            return chunk
+
+        expected = [key for key in saved if key in body]
         last: BaseException | None = None
 
-        # Khoá cache là đoạn ĐÃ che, nên nó đã bao gồm cả cách đánh số giữ chỗ.
-        # Khớp chính xác thì bản dịch lấy ra mới ghép lại đúng.
-        key = cache.cache_key(chunk, TRANSLATE_VARIANT, _LANG_PAIR)
+        # Khoá cache tính trên phần THÂN đã che: đã bao gồm cách đánh số giữ
+        # chỗ nên khớp chính xác mới ghép lại đúng, mà bỏ dấu đầu đoạn ra thì
+        # cùng một câu ở tiêu đề hay trong văn xuôi vẫn dùng lại được cache.
+        key = cache.cache_key(body, TRANSLATE_VARIANT, _LANG_PAIR)
         if cache_dir is not None:
             cached = cache.read(cache_dir, key, _CACHE_SUFFIX)
             if cached is not None:
                 hits += 1
-                return cached.decode("utf-8")
+                return prefix + cached.decode("utf-8")
 
         async with semaphore:
             for attempt in range(2):
                 if quota_gone:
                     raise QuotaExhausted("MyMemory đã hết hạn mức dịch trong ngày")
                 try:
-                    translated = await asyncio.to_thread(fetch, chunk)
+                    translated = await asyncio.to_thread(fetch, body)
                 except QuotaExhausted:
                     quota_gone = True
                     raise
@@ -242,7 +267,7 @@ async def translate(
                     # Chỉ ghi bản dịch tốt. Đoạn hỏng mà cache lại thì lần sau
                     # vẫn hỏng y như vậy, mà không còn cơ hội gọi lại.
                     cache.write(cache_dir, key, translated.encode("utf-8"), _CACHE_SUFFIX)
-                return translated
+                return prefix + translated
 
         failures += 1
         log.warning("Giữ nguyên tiếng Anh một đoạn: %s", last)
@@ -265,9 +290,21 @@ def _mymemory(chunk: str, *, email: str, timeout: int) -> str:
         f"{_ENDPOINT}?{urllib.parse.urlencode(params)}",
         headers={"User-Agent": "langnghe/1.0"},
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as exc:
+        # ĐO ĐƯỢC: hết hạn mức thì MyMemory trả 429 chứ KHÔNG bật cờ
+        # quotaFinished. Không bắt ở đây thì mỗi đoạn còn bị thử lại một lần
+        # nữa — 22 đoạn thành 44 request nện vào dịch vụ đang bảo dừng.
+        if exc.code == 429:
+            raise QuotaExhausted(
+                "MyMemory trả 429: hết hạn mức trong ngày hoặc gọi quá nhanh"
+            ) from exc
+        raise TranslateError(f"MyMemory trả HTTP {exc.code}") from exc
 
+    # Vẫn kiểm tra cờ: tài liệu của họ có nhắc tới nó, chỉ là thực tế đo được
+    # thì 429 tới trước.
     if payload.get("quotaFinished"):
         raise QuotaExhausted("MyMemory đã hết hạn mức dịch trong ngày")
     if str(payload.get("responseStatus")) != "200":

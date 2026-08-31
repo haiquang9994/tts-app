@@ -284,3 +284,55 @@ async def test_cache_is_optional(tmp_path):
 
     await translate("Hello there.", fetch=fake)
     assert list(tmp_path.iterdir()) == []
+
+
+# --- Dấu Markdown đầu đoạn ---
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["## ", "# ", "- ", "* ", "> ", "1. "])
+async def test_leading_markdown_is_not_sent_to_the_translator(prefix):
+    """Chuỗi bắt đầu bằng '##' khiến MyMemory trả về nguyên văn, không dịch.
+
+    Đo được trên dịch vụ thật. Tài liệu thiết kế đầy tiêu đề và gạch đầu dòng
+    nên phải tách dấu ra trước khi gửi, rồi gắn lại vào bản dịch.
+    """
+    sent: list[str] = []
+
+    def fake(chunk: str) -> str:
+        sent.append(chunk)
+        return "Kiến trúc ở đây."
+
+    out = await translate(prefix + "Architecture here.", fetch=fake)
+
+    assert sent == ["Architecture here."], "dấu Markdown không được gửi đi"
+    assert out == prefix + "Kiến trúc ở đây.", "dấu Markdown phải được gắn lại"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("markup", ["2.", "##", "-", "1)"])
+async def test_a_chunk_of_only_markup_is_left_alone(markup):
+    """Số thứ tự bị tách rời như '2.' thì không có gì để dịch, đừng tốn hạn mức."""
+    sent: list[str] = []
+
+    def fake(chunk: str) -> str:
+        sent.append(chunk)
+        return "khong nen goi"
+
+    assert await translate(markup, fetch=fake) == markup
+    assert sent == [], "không được gọi ra ngoài khi đoạn chỉ có dấu Markdown"
+
+
+@pytest.mark.asyncio
+async def test_cache_ignores_the_leading_marker(tmp_path):
+    """Cùng một câu ở tiêu đề và trong văn xuôi thì dùng chung cache."""
+    calls: list[str] = []
+
+    def fake(chunk: str) -> str:
+        calls.append(chunk)
+        return "Kiến trúc ở đây."
+
+    await translate("Architecture here.", fetch=fake, cache_dir=tmp_path)
+    out = await translate("## Architecture here.", fetch=fake, cache_dir=tmp_path)
+
+    assert len(calls) == 1
+    assert out == "## Kiến trúc ở đây."

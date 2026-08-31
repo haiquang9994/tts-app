@@ -75,9 +75,31 @@ phục dở dang — văn bản trả về còn sót `XQ0QX`. Sửa bằng cách
 **một** lượt, và đặt giữ chỗ ở dạng chữ thường `zq0qz` để không khớp mẫu nào.
 Khoá bởi `test_placeholder_is_not_protected_again`.
 
-**Giới hạn 500 ký tự.** MyMemory trả `403 QUERY LENGTH LIMIT EXCEEDED` cho truy vấn dài hơn 500
-ký tự. `split_chunks` cắt theo ranh giới câu ở ngưỡng 470, chỉ cắt cứng khi bản thân một câu đã
-dài hơn thế — cắt cứng giữa câu làm máy dịch mất ngữ cảnh và ghép lại nghe rất gượng.
+**Giới hạn độ dài, và cái bẫy nằm sau nó.** Dùng ẩn danh thì MyMemory trả
+`403 QUERY LENGTH LIMIT EXCEEDED` cho truy vấn dài hơn 500 ký tự. Nhưng **có email thì giới hạn
+đó không còn áp dụng** — đo được tới 1.500 ký tự vẫn dịch trọn vẹn.
+
+Cạm bẫy là ở mốc cao hơn: gửi 2.000 ký tự thì MyMemory **cắt bớt âm thầm**, trả về 1.457 ký tự
+kèm `200 OK`, không báo lỗi gì. Mất chữ mà không có tín hiệu nào là kiểu hỏng tệ nhất.
+
+Nên `MAX_QUERY_CHARS` giữ ở **470**: an toàn cho cả hai kiểu dùng, và cách xa ngưỡng cắt. Nâng
+lên chỉ nhanh hơn vài giây, không đáng đánh đổi. `split_chunks` cắt theo ranh giới câu, chỉ cắt
+cứng khi bản thân một câu đã dài hơn ngưỡng — cắt cứng giữa câu làm máy dịch mất ngữ cảnh và ghép
+lại nghe rất gượng.
+
+**Hết hạn mức báo bằng 429, không phải bằng cờ.** Tài liệu của MyMemory có trường `quotaFinished`,
+nhưng thực tế đo được thì hết hạn mức trả thẳng `HTTP 429`. Không bắt riêng mã này thì mỗi đoạn
+còn bị thử lại một lần nữa — một tài liệu 22 đoạn thành 44 request nện vào dịch vụ đang bảo dừng.
+Cả hai tín hiệu đều được kiểm tra.
+
+**Dấu Markdown đầu đoạn.** Có những đoạn bắt đầu bằng `##` mà MyMemory trả về nguyên văn, không
+dịch gì; bỏ `##` đi thì dịch bình thường, lặp lại 3/3 lần. Nhưng không phải đoạn nào có `##` cũng
+hỏng — đoạn ngắn không sao, một tiêu đề dài 130 ký tự toàn văn xuôi cũng không sao. Điều kiện
+kích hoạt chính xác chưa mô tả được.
+
+Vì vậy việc tách dấu ra trước khi gửi là **phòng thủ**, không phải chữa một lỗi đã hiểu hết: nó
+vô hại với đoạn vốn dịch được và cứu được đoạn hỏng. Cố ý **không** có test khẳng định kiểu hỏng
+đó của MyMemory — một test dựa trên thứ chưa hiểu hết thì sẽ đỏ ngẫu nhiên.
 
 ## Cache và hạn mức
 

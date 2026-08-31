@@ -103,11 +103,18 @@ test or a config comment — do not "clean them up".
   `re.sub` calls let a later pattern re-wrap an earlier placeholder, so restore finishes
   half-done and leaks placeholders into the output. Locked by
   `test_placeholder_is_not_protected_again`.
-- Translation chunks are capped at 470 chars. MyMemory answers `403 QUERY LENGTH LIMIT EXCEEDED`
-  above 500, and its quota is **per day, per IP** — every user of a deployment shares it.
-  Chunks are cached individually (`.txt` beside the `.mp3` files, same `CACHE_MAX_MB` budget),
-  keyed on the *masked* chunk so an exact hit restores correctly; failed chunks are never cached.
-  Changing the provider requires bumping `TRANSLATE_VARIANT`.
+- Translation chunks are capped at 470 chars. Anonymous use gets `403 QUERY LENGTH LIMIT EXCEEDED`
+  above 500; with `TRANSLATE_EMAIL` that limit lifts, but at ~2000 chars MyMemory **silently
+  truncates** (2000 in, 1457 out, `200 OK`). 470 stays well clear of both.
+- MyMemory signals an exhausted quota with **HTTP 429**, not the documented `quotaFinished` flag.
+  It must raise `QuotaExhausted` so queued chunks stop; otherwise every chunk retries into a
+  service that is already saying stop. Quota is **per day, per IP** — all users share it.
+- Chunks are cached individually (`.txt` beside the `.mp3` files, same `CACHE_MAX_MB` budget),
+  keyed on the *masked* chunk body so an exact hit restores correctly; failed chunks are never
+  cached. Changing the provider requires bumping `TRANSLATE_VARIANT`.
+- `_LEADING_MARKUP` strips `#`/`-`/`>`/`1.` before sending: some `##`-prefixed chunks come back
+  untranslated. The exact trigger is not characterised, so the strip is defensive and there is
+  deliberately no test asserting MyMemory's failure mode.
 - MyMemory is an external, publicly shared translation memory. `protect()` runs before the
   network call, so identifiers and paths never leave the server — but the prose does. Do not
   reorder those two steps.
