@@ -105,6 +105,9 @@ test or a config comment — do not "clean them up".
   `test_placeholder_is_not_protected_again`.
 - Translation chunks are capped at 470 chars. MyMemory answers `403 QUERY LENGTH LIMIT EXCEEDED`
   above 500, and its quota is **per day, per IP** — every user of a deployment shares it.
+  Chunks are cached individually (`.txt` beside the `.mp3` files, same `CACHE_MAX_MB` budget),
+  keyed on the *masked* chunk so an exact hit restores correctly; failed chunks are never cached.
+  Changing the provider requires bumping `TRANSLATE_VARIANT`.
 - MyMemory is an external, publicly shared translation memory. `protect()` runs before the
   network call, so identifiers and paths never leave the server — but the prose does. Do not
   reorder those two steps.

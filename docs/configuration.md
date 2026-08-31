@@ -15,7 +15,7 @@ phải secret: MyMemory dùng nó làm định danh hạn mức, không phải �
 | `TTS_TIMEOUT_SECONDS` | `30` | Timeout cho một lời gọi TTS |
 | `MAX_TEXT_LENGTH` | `1000` | Giới hạn ký tự mỗi request |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Hạn mức mỗi IP |
-| `MAX_TRANSLATE_LENGTH` | `3000` | Giới hạn ký tự mỗi lần dịch |
+| `MAX_TRANSLATE_LENGTH` | `10000` | Giới hạn ký tự mỗi lần dịch |
 | `TRANSLATE_TIMEOUT_SECONDS` | `20` | Timeout cho một lời gọi dịch |
 | `TRANSLATE_EMAIL` | rỗng | Gửi kèm để nâng hạn mức MyMemory từ 5.000 lên 50.000 ký tự/ngày |
 | `CACHE_DIR` | `mp3` | Thư mục cache |
@@ -35,5 +35,8 @@ chứ không đọc từ biến môi trường. Đáng nhớ khi thử nghiệm:
 20 request đầu lọt qua.
 
 Hạn mức dịch tính theo **ngày** và theo **IP**, nên toàn bộ người dùng của một bản triển khai
-dùng chung một hạn mức. `MAX_TRANSLATE_LENGTH` để `3000` chứ không cao hơn vì MyMemory chỉ nhận
-470 ký tự mỗi lời gọi: một lần dán 3.000 ký tự đã tốn khoảng 7 lời gọi và mất vài giây.
+dùng chung một hạn mức. MyMemory chỉ nhận 470 ký tự mỗi lời gọi, nên một lần dán 10.000 ký tự
+tốn khoảng 22 lời gọi — chạy 4 luồng song song thì mất vài giây.
+
+Bản dịch được cache trên đĩa theo từng đoạn, dùng chung thư mục và chung ngân sách
+`CACHE_MAX_MB` với audio. Dán lại tài liệu cũ thì không tốn hạn mức nào.

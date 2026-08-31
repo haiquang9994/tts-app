@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 
 from app.translate import (
+    _CONCURRENCY,
+    QuotaExhausted,
     TranslateError,
     protect,
     restore,
@@ -131,7 +133,8 @@ async def test_translate_joins_chunks_in_order():
         return {"One here.": "Một.", "Two here.": "Hai."}[chunk]
 
     out = await translate("One here. Two here.", fetch=fake, limit=12)
-    assert seen == ["One here.", "Two here."]
+    # Chạy song song nên thứ tự GỌI không xác định, nhưng thứ tự GHÉP thì phải.
+    assert sorted(seen) == ["One here.", "Two here."]
     assert out == "Một. Hai."
 
 
@@ -146,13 +149,61 @@ async def test_translate_restores_protected_terms():
 
 
 @pytest.mark.asyncio
-async def test_translate_falls_back_when_placeholder_is_lost():
-    """Máy dịch nuốt giữ chỗ thì thà giữ nguyên tiếng Anh còn hơn trả ra rác."""
+async def test_translate_keeps_english_for_one_bad_chunk():
+    """Hỏng một đoạn thì chỉ mất đoạn đó, không mất cả tài liệu.
+
+    Với tài liệu dài, bỏ toàn bộ bản dịch vì một câu là quá đắt.
+    """
+    def fake(chunk: str) -> str:
+        if "updateButtons" in chunk or "zq" in chunk:
+            return "Bản dịch đã làm mất giữ chỗ."
+        return "Câu thứ hai."
+
+    out = await translate("Call updateButtons now. Second one here.", fetch=fake, limit=25)
+    assert "Call updateButtons now." in out
+    assert "Câu thứ hai." in out
+
+
+@pytest.mark.asyncio
+async def test_translate_fails_when_every_chunk_is_bad():
+    """Trả về y hệt đầu vào kèm 200 làm người dùng tưởng nút không chạy."""
     def fake(chunk: str) -> str:
         return "Bản dịch đã làm mất giữ chỗ."
 
-    out = await translate("Call updateButtons now.", fetch=fake)
-    assert out == "Call updateButtons now."
+    with pytest.raises(TranslateError):
+        await translate("Call updateButtons now.", fetch=fake)
+
+
+@pytest.mark.asyncio
+async def test_translate_retries_a_chunk_once():
+    calls: list[str] = []
+
+    def fake(chunk: str) -> str:
+        calls.append(chunk)
+        if len(calls) == 1:
+            raise OSError("hỏng thoáng qua")
+        return "Đã dịch."
+
+    assert await translate("Hello there.", fetch=fake) == "Đã dịch."
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_translate_stops_immediately_when_quota_is_gone():
+    """Hết hạn mức thì các đoạn sau chắc chắn cũng hỏng: dừng ngay, đừng đốt thêm."""
+    calls: list[str] = []
+
+    def fake(chunk: str) -> str:
+        calls.append(chunk)
+        raise QuotaExhausted("hết hạn mức")
+
+    text = " ".join(f"Sentence {i} here." for i in range(10))
+    with pytest.raises(QuotaExhausted):
+        await translate(text, fetch=fake, limit=20)
+
+    # Vài đoạn đầu đã bay rồi thì không thu lại được, nhưng phần còn lại phải
+    # dừng — và không đoạn nào được thử lại.
+    assert len(calls) <= _CONCURRENCY
 
 
 @pytest.mark.asyncio
@@ -170,3 +221,66 @@ async def test_translate_wraps_provider_failure():
 
     with pytest.raises(TranslateError):
         await translate("Hello there.", fetch=fake)
+
+
+# --- Cache: dán lại đoạn cũ thì không được tốn hạn mức ---
+
+@pytest.mark.asyncio
+async def test_second_translation_uses_the_cache(tmp_path):
+    calls: list[str] = []
+
+    def fake(chunk: str) -> str:
+        calls.append(chunk)
+        return "Đã dịch."
+
+    first = await translate("Hello there.", fetch=fake, cache_dir=tmp_path)
+    second = await translate("Hello there.", fetch=fake, cache_dir=tmp_path)
+
+    assert first == second == "Đã dịch."
+    assert len(calls) == 1, "lần dán thứ hai không được gọi ra ngoài"
+
+
+@pytest.mark.asyncio
+async def test_cache_is_per_chunk_not_per_document(tmp_path):
+    """Sửa một câu rồi dán lại: chỉ câu đã sửa mới tốn hạn mức."""
+    calls: list[str] = []
+
+    def fake(chunk: str) -> str:
+        calls.append(chunk)
+        return "VI:" + chunk
+
+    await translate("One here. Two here.", fetch=fake, limit=12, cache_dir=tmp_path)
+    assert len(calls) == 2
+
+    calls.clear()
+    await translate("One here. Three here.", fetch=fake, limit=14, cache_dir=tmp_path)
+    assert calls == ["Three here."], "chỉ câu mới được gọi ra ngoài"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_chunk_is_not_cached(tmp_path):
+    """Cache đoạn hỏng thì lần sau vẫn hỏng mà không còn cơ hội gọi lại."""
+    attempts: list[str] = []
+
+    def broken(chunk: str) -> str:
+        attempts.append(chunk)
+        raise OSError("mạng hỏng")
+
+    with pytest.raises(TranslateError):
+        await translate("Hello there.", fetch=broken, cache_dir=tmp_path)
+    assert list(tmp_path.glob("*.txt")) == []
+
+    def working(chunk: str) -> str:
+        return "Đã dịch."
+
+    assert await translate("Hello there.", fetch=working, cache_dir=tmp_path) == "Đã dịch."
+
+
+@pytest.mark.asyncio
+async def test_cache_is_optional(tmp_path):
+    """Không truyền cache_dir thì không được ghi gì ra đĩa."""
+    def fake(chunk: str) -> str:
+        return "Đã dịch."
+
+    await translate("Hello there.", fetch=fake)
+    assert list(tmp_path.iterdir()) == []

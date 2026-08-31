@@ -1,4 +1,8 @@
-"""Cache MP3 trên đĩa. Module này chỉ biết tới hệ thống file."""
+"""Cache trên đĩa. Module này chỉ biết tới hệ thống file.
+
+Dùng cho cả audio (`.mp3`) lẫn bản dịch (`.txt`): cùng một cách ghi nguyên tử
+và cùng một ngân sách dung lượng, chỉ khác đuôi file.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -18,20 +22,20 @@ def cache_key(final_text: str, voice: str, rate: str) -> str:
     return hashlib.md5(raw).hexdigest()
 
 
-def path_for(cache_dir: Path, key: str) -> Path:
-    return cache_dir / f"{key}.mp3"
+def path_for(cache_dir: Path, key: str, suffix: str = ".mp3") -> Path:
+    return cache_dir / f"{key}{suffix}"
 
 
-def read(cache_dir: Path, key: str) -> bytes | None:
+def read(cache_dir: Path, key: str, suffix: str = ".mp3") -> bytes | None:
     try:
-        data = path_for(cache_dir, key).read_bytes()
+        data = path_for(cache_dir, key, suffix).read_bytes()
     except (FileNotFoundError, NotADirectoryError):
         return None
     # File rỗng coi như không có: nó là dấu vết của một lần ghi hỏng.
     return data or None
 
 
-def write(cache_dir: Path, key: str, data: bytes) -> None:
+def write(cache_dir: Path, key: str, data: bytes, suffix: str = ".mp3") -> None:
     """Ghi nguyên tử: ra file tạm rồi os.replace.
 
     Tiến trình chết giữa chừng chỉ để lại file .tmp vô hại, không bao giờ
@@ -41,7 +45,7 @@ def write(cache_dir: Path, key: str, data: bytes) -> None:
     tmp = cache_dir / f"{key}.{uuid.uuid4().hex}.tmp"
     try:
         tmp.write_bytes(data)
-        os.replace(tmp, path_for(cache_dir, key))
+        os.replace(tmp, path_for(cache_dir, key, suffix))
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -58,18 +62,25 @@ def cleanup_tmp(cache_dir: Path) -> int:
     return removed
 
 
-def enforce_limit(cache_dir: Path, max_mb: int) -> int:
-    """Xoá file cũ nhất cho tới khi tổng dung lượng còn 80% ngưỡng."""
+def enforce_limit(
+    cache_dir: Path, max_mb: int, suffixes: tuple[str, ...] = (".mp3", ".txt")
+) -> int:
+    """Xoá file cũ nhất cho tới khi tổng dung lượng còn 80% ngưỡng.
+
+    Quét cả bản dịch: chúng nhỏ hơn audio hàng nghìn lần nên hầu như không
+    chiếm chỗ, nhưng bỏ ra ngoài ngân sách thì không có gì dọn chúng cả.
+    """
     limit = max_mb * 1024 * 1024
     entries = []
     total = 0
-    for p in cache_dir.glob("*.mp3"):
-        try:
-            st = p.stat()
-        except OSError:
-            continue
-        entries.append((st.st_mtime, st.st_size, p))
-        total += st.st_size
+    for suffix in suffixes:
+        for p in cache_dir.glob(f"*{suffix}"):
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            entries.append((st.st_mtime, st.st_size, p))
+            total += st.st_size
 
     if total <= limit:
         return 0

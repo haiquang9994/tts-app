@@ -172,10 +172,12 @@ async def translate_to_vietnamese(payload: TranslateRequest, request: Request):
         )
 
     try:
-        translated = await translate(raw, fetch=translate_fetcher)
+        translated = await translate(
+            raw, fetch=translate_fetcher, cache_dir=settings.cache_dir
+        )
     except TranslateError as exc:
         log.error("Không dịch được: %s", exc)
-        return _error(503, "Dịch vụ dịch đang không phản hồi, thử lại sau ít phút.")
+        return _error(503, "Không dịch được lúc này, thử lại sau ít phút.")
 
     return {"text": translated}
 

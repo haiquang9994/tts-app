@@ -30,9 +30,18 @@ import logging
 import re
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Callable
 
+from . import cache
+
 log = logging.getLogger(__name__)
+
+# Định danh biến thể bản dịch, nằm trong khoá cache. Đổi nhà cung cấp dịch thì
+# phải đổi giá trị này, nếu không bản dịch cũ của nhà cũ sẽ bị dùng lại.
+# Đổi TERMS hay _PROTECT thì không cần: chúng làm đổi luôn đoạn đã che.
+TRANSLATE_VARIANT = "mymemory-en-vi"
+_CACHE_SUFFIX = ".txt"
 
 # MyMemory trả 403 "QUERY LENGTH LIMIT EXCEEDED. MAX ALLOWED QUERY : 500 CHARS".
 # Chừa biên vì phần văn bản còn phải cộng thêm tham số khác trong URL.
@@ -77,8 +86,22 @@ _PROTECT = re.compile("|".join((
 Fetcher = Callable[[str], str]
 
 
+# Số lời gọi đồng thời. Giữ thấp: đây là dịch vụ miễn phí, bắn 20 request một
+# lúc vừa bất lịch sự vừa dễ bị chặn. 4 đủ để một tài liệu dài xong trong vài
+# giây thay vì gần một phút.
+_CONCURRENCY = 4
+
+
 class TranslateError(RuntimeError):
     """Dịch vụ dịch không trả về được kết quả."""
+
+
+class QuotaExhausted(TranslateError):
+    """Hết hạn mức trong ngày.
+
+    Tách riêng để dừng NGAY: các đoạn còn lại chắc chắn cũng hỏng, và trả về
+    một tài liệu dịch dở nửa chừng còn khó hiểu hơn là báo lỗi thẳng.
+    """
 
 
 def protect(text: str) -> tuple[str, dict[str, str]]:
@@ -152,33 +175,85 @@ def split_chunks(text: str, limit: int = MAX_QUERY_CHARS) -> list[str]:
 
 
 async def translate(
-    text: str, *, fetch: Fetcher, limit: int = MAX_QUERY_CHARS
+    text: str,
+    *,
+    fetch: Fetcher,
+    limit: int = MAX_QUERY_CHARS,
+    cache_dir: Path | None = None,
 ) -> str:
-    """Dịch `text` sang tiếng Việt, giữ nguyên các token trông như code."""
+    """Dịch `text` sang tiếng Việt, giữ nguyên các token trông như code.
+
+    Một đoạn hỏng thì giữ nguyên tiếng Anh đoạn đó chứ không bỏ cả bản dịch:
+    với tài liệu dài, mất một câu còn hơn mất tất cả. Chỉ khi MỌI đoạn đều
+    hỏng mới báo lỗi ra ngoài.
+
+    Cache theo TỪNG ĐOẠN chứ không theo cả văn bản: sửa một câu rồi dán lại
+    thì những câu còn nguyên vẫn lấy từ cache, chỉ câu đã sửa mới tốn hạn mức.
+    """
     masked, saved = protect(" ".join(text.split()))
     chunks = split_chunks(masked, limit)
     if not chunks:
         return ""
 
-    out: list[str] = []
-    for chunk in chunks:
-        try:
-            translated = await asyncio.to_thread(fetch, chunk)
-        except TranslateError:
-            raise
-        except Exception as exc:
-            # Bắt rộng ở đúng ranh giới gọi ra ngoài, cùng lý do như tts.py.
-            raise TranslateError(f"{type(exc).__name__}: {exc}") from exc
+    semaphore = asyncio.Semaphore(_CONCURRENCY)
+    failures = 0
+    hits = 0
+    # Hết hạn mức thì mọi đoạn còn lại chắc chắn cũng hỏng. Cờ này để các đoạn
+    # đang xếp hàng ở semaphore bỏ cuộc luôn thay vì vẫn gọi ra ngoài.
+    quota_gone = False
 
+    async def translate_one(chunk: str) -> str:
+        nonlocal failures, hits, quota_gone
         expected = [key for key in saved if key in chunk]
-        if any(key.lower() not in translated.lower() for key in expected):
-            # Máy dịch nuốt mất giữ chỗ thì bản dịch đã hỏng: thà giữ nguyên
-            # tiếng Anh còn hơn trả ra câu thiếu định danh.
-            log.warning("Bản dịch làm mất giữ chỗ, giữ nguyên đoạn gốc")
-            translated = chunk
-        out.append(translated.strip())
+        last: BaseException | None = None
 
-    return restore(" ".join(out), saved)
+        # Khoá cache là đoạn ĐÃ che, nên nó đã bao gồm cả cách đánh số giữ chỗ.
+        # Khớp chính xác thì bản dịch lấy ra mới ghép lại đúng.
+        key = cache.cache_key(chunk, TRANSLATE_VARIANT, _LANG_PAIR)
+        if cache_dir is not None:
+            cached = cache.read(cache_dir, key, _CACHE_SUFFIX)
+            if cached is not None:
+                hits += 1
+                return cached.decode("utf-8")
+
+        async with semaphore:
+            for attempt in range(2):
+                if quota_gone:
+                    raise QuotaExhausted("MyMemory đã hết hạn mức dịch trong ngày")
+                try:
+                    translated = await asyncio.to_thread(fetch, chunk)
+                except QuotaExhausted:
+                    quota_gone = True
+                    raise
+                except Exception as exc:
+                    # Bắt rộng ở đúng ranh giới gọi ra ngoài, cùng lý do
+                    # như tts.py.
+                    last = exc
+                    continue
+
+                if any(key.lower() not in translated.lower() for key in expected):
+                    # Máy dịch nuốt mất giữ chỗ thì bản dịch đã hỏng: câu
+                    # thiếu định danh còn tệ hơn câu chưa dịch.
+                    last = TranslateError("bản dịch làm mất giữ chỗ")
+                    continue
+
+                translated = translated.strip()
+                if cache_dir is not None:
+                    # Chỉ ghi bản dịch tốt. Đoạn hỏng mà cache lại thì lần sau
+                    # vẫn hỏng y như vậy, mà không còn cơ hội gọi lại.
+                    cache.write(cache_dir, key, translated.encode("utf-8"), _CACHE_SUFFIX)
+                return translated
+
+        failures += 1
+        log.warning("Giữ nguyên tiếng Anh một đoạn: %s", last)
+        return chunk
+
+    parts = await asyncio.gather(*(translate_one(c) for c in chunks))
+    if failures == len(chunks):
+        raise TranslateError(f"mọi đoạn đều hỏng ({len(chunks)} đoạn)")
+
+    log.info("Dịch %d đoạn: %d lấy từ cache, %d hỏng", len(chunks), hits, failures)
+    return restore(" ".join(parts), saved)
 
 
 def _mymemory(chunk: str, *, email: str, timeout: int) -> str:
@@ -194,7 +269,7 @@ def _mymemory(chunk: str, *, email: str, timeout: int) -> str:
         payload = json.load(response)
 
     if payload.get("quotaFinished"):
-        raise TranslateError("MyMemory đã hết hạn mức dịch trong ngày")
+        raise QuotaExhausted("MyMemory đã hết hạn mức dịch trong ngày")
     if str(payload.get("responseStatus")) != "200":
         raise TranslateError(
             f"MyMemory từ chối ({payload.get('responseStatus')}): "

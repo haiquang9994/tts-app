@@ -79,11 +79,39 @@ Khoá bởi `test_placeholder_is_not_protected_again`.
 ký tự. `split_chunks` cắt theo ranh giới câu ở ngưỡng 470, chỉ cắt cứng khi bản thân một câu đã
 dài hơn thế — cắt cứng giữa câu làm máy dịch mất ngữ cảnh và ghép lại nghe rất gượng.
 
+## Cache và hạn mức
+
+Bản dịch được cache trên đĩa **theo từng đoạn**, không theo cả văn bản. Sửa một câu rồi dán lại
+thì những câu còn nguyên vẫn lấy từ cache, chỉ câu đã sửa mới tốn hạn mức.
+
+Khoá cache là đoạn **đã che** — tức đã bao gồm cả cách đánh số giữ chỗ — nên chỉ khớp chính xác
+mới dùng lại, và bản dịch lấy ra ghép lại luôn đúng. `TRANSLATE_VARIANT` nằm trong khoá để đổi
+nhà cung cấp thì bản dịch cũ không bị dùng lại. Đổi `TERMS` hay `_PROTECT` thì không cần đụng tới
+nó: chúng làm đổi luôn đoạn đã che, nên khoá tự đổi theo.
+
+Đoạn hỏng **không** được cache. Cache lại thì lần sau vẫn hỏng y như vậy mà không còn cơ hội gọi
+lại.
+
+Bản dịch dùng chung thư mục và chung ngân sách `CACHE_MAX_MB` với audio, phân biệt bằng đuôi
+`.txt` so với `.mp3`. Chúng nhỏ hơn audio hàng nghìn lần nên gần như không chiếm chỗ.
+
+Một lần dán 10.000 ký tự tốn khoảng 22 lời gọi. Chạy 4 luồng song song — giữ thấp có chủ đích, vì
+bắn 22 request cùng lúc vào một dịch vụ miễn phí vừa bất lịch sự vừa dễ bị chặn.
+
 ## Khi bản dịch hỏng
 
-Nếu một giữ chỗ biến mất khỏi kết quả, đoạn đó bị coi là hỏng và **giữ nguyên tiếng Anh**, vì câu
-thiếu định danh còn tệ hơn câu chưa dịch. Nếu MyMemory hỏng hẳn hoặc hết hạn mức, endpoint trả
-`503` và giao diện giữ nguyên văn bản gốc — người dùng vẫn nghe được bản tiếng Anh.
+Mỗi đoạn được thử lại **một** lần. Vẫn hỏng thì đoạn đó **giữ nguyên tiếng Anh** còn cả tài liệu
+vẫn được dịch: với văn bản dài, mất một câu còn hơn mất tất cả. Giữ chỗ biến mất khỏi kết quả
+cũng tính là hỏng, vì câu thiếu định danh còn tệ hơn câu chưa dịch.
+
+Chỉ khi **mọi** đoạn đều hỏng mới trả `503` — trả về y hệt đầu vào kèm `200` sẽ làm người dùng
+tưởng nút không chạy.
+
+Hết hạn mức là trường hợp riêng (`QuotaExhausted`): dừng ngay lập tức, kể cả các đoạn đang xếp
+hàng, vì chúng chắc chắn cũng hỏng và một tài liệu dịch dở nửa chừng còn khó hiểu hơn một thông
+báo lỗi.
+
+Mọi trường hợp lỗi thì giao diện giữ nguyên văn bản gốc — người dùng vẫn nghe được bản tiếng Anh.
 
 ## Dữ liệu gửi ra ngoài
 

@@ -58,7 +58,10 @@ def test_rejects_empty_text(api):
 
 def test_rejects_text_that_is_too_long(api):
     client, calls = api
-    res = client.post("/api/translate", json={"text": "a" * 3001})
+    # Lấy từ Settings chứ không viết cứng, để đổi mặc định không làm hỏng test.
+    res = client.post(
+        "/api/translate", json={"text": "a" * (Settings().max_translate_length + 1)}
+    )
 
     # 413 chứ không phải 422: 422 lẫn với lỗi schema của pydantic.
     assert res.status_code == 413
