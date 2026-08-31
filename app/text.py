@@ -28,12 +28,74 @@ _PATH_LIKE = re.compile(r"\S*(?:[/\\]\S*|\.[A-Za-z]\S*)")
 _PATH_SEPARATORS = re.compile(r"[/\\_\-:]+")
 _TRAILING_PUNCT = ".,;:!?"
 
+# --- Cú pháp Markdown ---
+# Đo bằng thời lượng audio thì gTTS phát âm thành lời các ký tự * _ ~ > < = @
+# & % $ ^, và người dùng nghe thấy # đọc là "thăng", * là "sao", ` là "huyền".
+#
+# Chỉ bỏ những gì THUẦN TUÝ là cú pháp. Các ký tự như % $ = @ vẫn giữ nguyên vì
+# chúng là nội dung: "30%" phải đọc là "ba mươi phần trăm", "a = b" là "a bằng
+# b". Bỏ chúng đi mới là làm hỏng.
+_MD_FENCE = re.compile(r"^\s{0,3}(?:```|~~~).*$", re.MULTILINE)
+# Dòng chỉ gồm ký tự kẻ: gạch ngang phân cách, tiêu đề kiểu gạch chân, hàng
+# ngăn cách của bảng, và front matter.
+_MD_RULE = re.compile(r"^\s{0,3}[-=*_|:\s]{3,}$", re.MULTILINE)
+_MD_HTML_TAG = re.compile(r"</?[A-Za-z][^>]*>")
+_MD_AUTOLINK = re.compile(r"<((?:https?|mailto):[^>\s]+)>")
+_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_MD_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_REF_DEF = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*\S+.*$", re.MULTILINE)
+_MD_FOOTNOTE = re.compile(r"\[\^[^\]]*\]")
+_MD_REF_LINK = re.compile(r"\[([^\]]*)\]\[[^\]]*\]")
+_MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
+_MD_HEADING_TAIL = re.compile(r"\s+#+\s*$", re.MULTILINE)
+_MD_QUOTE = re.compile(r"^\s{0,3}(?:>\s?)+", re.MULTILINE)
+_MD_BULLET = re.compile(r"^\s{0,3}[-*+]\s+", re.MULTILINE)
+_MD_ORDERED = re.compile(r"^\s{0,3}\d{1,3}[.)]\s+", re.MULTILINE)
+_MD_TASK = re.compile(r"^\s{0,3}\[[ xX]\]\s*", re.MULTILINE)
+_MD_MARKS = re.compile(r"[*`~|]+")
+# Gạch dưới chỉ là cú pháp khi đứng ở đầu hoặc cuối từ. Trong Ha_Noi hay
+# snake_case thì nó thuộc về định danh, xoá đi sẽ dính chữ vào nhau.
+_MD_UNDERSCORE = re.compile(r"(?<![^\W_])_+|_+(?![^\W_])")
+
+
+def strip_markdown(text: str) -> str:
+    """Bỏ ký tự cú pháp Markdown để chúng không bị đọc thành lời.
+
+    Chạy trước khi gộp khoảng trắng, vì các quy tắc đầu dòng (tiêu đề, trích
+    dẫn, gạch đầu dòng) cần cấu trúc dòng còn nguyên.
+    """
+    text = _MD_FENCE.sub(" ", text)
+    text = _MD_RULE.sub(" ", text)
+    text = _MD_REF_DEF.sub(" ", text)
+
+    # Autolink trước khi bỏ thẻ HTML, nếu không <https://...> bị xoá cả URL.
+    text = _MD_AUTOLINK.sub(r"\1", text)
+    text = _MD_HTML_TAG.sub(" ", text)
+
+    text = _MD_FOOTNOTE.sub(" ", text)
+    text = _MD_IMAGE.sub(r"\1", text)
+    # Giữ phần chữ của liên kết, bỏ URL: đọc URL lên rất khó nghe.
+    text = _MD_LINK.sub(r"\1", text)
+    text = _MD_REF_LINK.sub(r"\1", text)
+
+    text = _MD_HEADING.sub("", text)
+    text = _MD_HEADING_TAIL.sub("", text)
+    text = _MD_QUOTE.sub("", text)
+    text = _MD_BULLET.sub("", text)
+    text = _MD_ORDERED.sub("", text)
+    text = _MD_TASK.sub("", text)
+
+    text = _MD_UNDERSCORE.sub(" ", text)
+    return _MD_MARKS.sub(" ", text)
+
 
 def normalize(text: str) -> str:
+    text = strip_markdown(text)
     text = text.replace('"', "")
     text = re.sub(r"\s+", " ", text).strip()
-    # Bỏ khoảng trắng thừa trước dấu câu: "Giá 5 , 5" -> "Giá 5, 5"
-    text = re.sub(r"\s+([,;:])", r"\1", text)
+    # Bỏ khoảng trắng thừa trước dấu câu. Cần thiết sau khi lọc Markdown:
+    # "và `mã`." thành "và mã ." nếu không dọn.
+    text = re.sub(r"\s+([,;:.!?])", r"\1", text)
 
     parts = [p.strip() for p in _SENTENCE_BREAK.split(text) if p and p.strip()]
     # Mỗi mảnh kết thúc bằng dấu câu để TTS ngắt nghỉ giữa các mảnh.

@@ -57,6 +57,17 @@ Cache ghi nguyên tử (ghi file tạm rồi `os.replace`), nên tiến trình c
 
 Xem trạng thái bằng `GET /api/status`.
 
+### Lọc cú pháp Markdown
+
+Người dùng thường dán tài liệu Markdown vào. Nếu không lọc, TTS đọc luôn ký tự cú pháp: `#` thành
+"thăng", `*` thành "sao", `` ` `` thành "huyền". `strip_markdown` trong `app/text.py` bỏ tiêu đề,
+gạch đầu dòng, danh sách đánh số, ô đánh dấu việc, trích dẫn, khối code, đường kẻ ngang, bảng,
+in đậm/nghiêng/gạch, liên kết (giữ chữ, bỏ URL), ảnh, chú thích cuối trang, thẻ HTML và autolink.
+
+**Ranh giới quan trọng:** chỉ bỏ thứ *thuần tuý là cú pháp*. Các ký tự `% $ = @` vẫn giữ nguyên vì
+chúng là nội dung — "30%" phải đọc thành "ba mươi phần trăm", "a = b" thành "a bằng b". Gạch dưới
+chỉ bị bỏ khi đứng đầu hoặc cuối từ (`_nghiêng_`), còn `snake_case_name` và `Ha_Noi` thì giữ.
+
 ### Đọc đường dẫn
 
 gTTS đánh vần từng chữ cái khi gặp dấu chấm đứng trước chữ. Đo bằng thời lượng audio:

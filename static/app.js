@@ -10,6 +10,11 @@ const STORAGE = {
   items: '__base64_items__',
 };
 
+// Dòng mở/đóng khối code là cú pháp thuần tuý, nhưng ```python có chữ nên lọt
+// qua bộ lọc chữ-số bên dưới. Server lọc sạch rồi trả 422, làm nháy thông báo
+// lỗi vô ích — chặn luôn ở đây.
+const isCodeFence = (line) => /^\s*(```|~~~)/.test(line);
+
 // Lỗi tạm thời thì thử lại; lỗi do chính nội dung (413, 422) thì thử lại
 // bao nhiêu lần cũng hỏng y như vậy, phải bỏ câu đó đi kẻo lặp vô hạn.
 const isRetryable = (status) => !status || status === 429 || status >= 500;
@@ -138,7 +143,7 @@ const RunAudio = function (params) {
     if (!this.has()) return;
 
     const text = this.shift_queue();
-    if (!text || !text.match(/[a-zA-Z0-9]+/)) return;
+    if (!text || !text.match(/[a-zA-Z0-9]+/) || isCodeFence(text)) return;
 
     this.loading = true;
     this.loading_text = text;
