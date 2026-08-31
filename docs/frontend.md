@@ -49,6 +49,17 @@ Nút sửa thẳng nội dung trong ô nhập để người dùng xem lại và
 
 `autoWrap` được phơi ra `window.autoWrap` để kiểm thử tự động.
 
+## Nút "Dịch"
+
+Gọi `POST /api/translate` cho **cả đoạn một lần** rồi thay nội dung ô nhập, giống nút "Xuống
+dòng". Dịch từng dòng sau khi đã cắt sẽ tốn nhiều lời gọi hơn hẳn và mất ngữ cảnh câu.
+
+Trong lúc chờ, cờ `translating` khoá nút lại — không có cờ này thì bấm nhiều lần sẽ bắn nhiều
+request song song và đốt hạn mức. Hỏng thì **giữ nguyên văn bản gốc** và chỉ hiện thông báo ở
+`#status`: người dùng vẫn nghe được bản tiếng Anh.
+
+Chi tiết về nhà cung cấp và cách giữ nguyên định danh: [translation.md](translation.md).
+
 ## Bộ lọc dòng
 
 Trước khi gửi lên server, `prefetch` bỏ qua:

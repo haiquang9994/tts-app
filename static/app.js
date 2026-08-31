@@ -385,11 +385,16 @@ document.getElementById('text_file').addEventListener('change', async (e) => {
 const textareaEl = document.getElementById('text_textarea');
 const textareaBtnEl = document.getElementById('text_textarea_btn');
 const wrapBtnEl = document.getElementById('wrap_btn');
+const translateBtnEl = document.getElementById('translate_btn');
+const statusEl = document.getElementById('status');
+
+let translating = false;
 
 const updateButtons = () => {
   const isEmpty = !textareaEl.value.trim();
   textareaBtnEl.disabled = isEmpty;
   wrapBtnEl.disabled = isEmpty;
+  translateBtnEl.disabled = isEmpty || translating;
 };
 
 textareaEl.addEventListener('input', updateButtons);
@@ -399,6 +404,33 @@ wrapBtnEl.addEventListener('click', () => {
   textareaEl.value = autoWrap(textareaEl.value);
   textareaEl.focus();
   updateButtons();
+});
+
+translateBtnEl.addEventListener('click', async () => {
+  if (translating || !textareaEl.value.trim()) return;
+
+  // Dịch cả đoạn một lần rồi thay thẳng trong ô nhập, giống nút "Xuống dòng":
+  // người dùng xem lại bản dịch trước khi thêm vào hàng đợi, và phần đọc phía
+  // sau không cần biết gì về việc đã dịch.
+  translating = true;
+  const label = translateBtnEl.textContent;
+  translateBtnEl.textContent = 'Đang dịch…';
+  updateButtons();
+  if (statusEl) statusEl.textContent = 'Đang dịch sang tiếng Việt…';
+
+  try {
+    const res = await postJson('/api/translate', { text: textareaEl.value });
+    textareaEl.value = res.text;
+    if (statusEl) statusEl.textContent = 'Đã dịch xong. Xem lại trước khi thêm vào hàng đợi.';
+  } catch (err) {
+    // Giữ nguyên văn bản gốc: dịch hỏng thì vẫn nghe được bản tiếng Anh.
+    if (statusEl) statusEl.textContent = err.message;
+  } finally {
+    translating = false;
+    translateBtnEl.textContent = label;
+    textareaEl.focus();
+    updateButtons();
+  }
 });
 
 textareaBtnEl.addEventListener('click', () => {

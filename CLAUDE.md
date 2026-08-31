@@ -2,8 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Vietnamese text-to-speech reader. A single FastAPI service serves the static frontend and one TTS
-API. No database, no build step — all user state lives in browser `localStorage`.
+Vietnamese text-to-speech reader. A single FastAPI service serves the static frontend, one TTS
+API, and one English→Vietnamese translation API. No database, no build step — all user state
+lives in browser `localStorage`.
 
 Prose documentation is in Vietnamese under `README.md` and `docs/`. This file is the English
 summary for agents; the `docs/` pages carry the depth.
@@ -59,7 +60,11 @@ retries), and recovery probes with a single request after a doubling cooldown.
 Each provider's audio is cached under its own key, so fallback audio never shadows the preferred
 voice, and a long outage does not re-hit the network on every replay.
 
-See [docs/architecture.md](docs/architecture.md).
+`POST /api/translate` (MyMemory) is deliberately **outside** this flow. The "Dịch" button rewrites
+the textarea in place, like the line-wrap button, so `text.py`, the audio cache and the queue are
+untouched and a translation outage cannot reach the primary voice.
+
+See [docs/architecture.md](docs/architecture.md) and [docs/translation.md](docs/translation.md).
 
 ## Non-obvious constraints
 
@@ -94,6 +99,15 @@ test or a config comment — do not "clean them up".
   killing the whole script.
 - Changing how audio is produced requires bumping `GTTS_VARIANT` / `EDGE_VARIANT` in `tts.py`;
   they are part of the cache key.
+- `_PROTECT` in `translate.py` must stay **one** regex applied in **one** pass. Sequential
+  `re.sub` calls let a later pattern re-wrap an earlier placeholder, so restore finishes
+  half-done and leaks placeholders into the output. Locked by
+  `test_placeholder_is_not_protected_again`.
+- Translation chunks are capped at 470 chars. MyMemory answers `403 QUERY LENGTH LIMIT EXCEEDED`
+  above 500, and its quota is **per day, per IP** — every user of a deployment shares it.
+- MyMemory is an external, publicly shared translation memory. `protect()` runs before the
+  network call, so identifiers and paths never leave the server — but the prose does. Do not
+  reorder those two steps.
 
 ## Text processing
 
@@ -103,6 +117,11 @@ is never shown to the user — the UI always displays the original text.
 Every rule is deliberately narrow, and golden tests lock behaviour in **both** directions: what
 must change, and what must stay untouched. Before widening any rule, read
 [docs/text-processing.md](docs/text-processing.md).
+
+Translation (`translate.py`) is a separate pipeline with the same philosophy: protect only what
+*measurably* breaks. Detection is by token **shape**, not by a keyword list — `POST` and `COPY`
+are ordinary English words that only context makes technical, so a list can never cover them.
+`cache` is deliberately absent from `TERMS` because "bộ nhớ cache" is already correct.
 
 The key boundary: only strip what is *purely syntax*. gTTS also pronounces `% $ = @ & ^ < >`, but
 those are content — "30%" should read as "ba mươi phần trăm". Stripping them is the bug, not the
@@ -122,5 +141,5 @@ because spelling out is far longer than reading. A ready-made snippet is at the 
 
 ## Further reading
 
-`docs/architecture.md`, `docs/text-processing.md`, `docs/frontend.md`, `docs/api.md`,
-`docs/configuration.md`, `docs/development.md`, `docs/operations.md`.
+`docs/architecture.md`, `docs/text-processing.md`, `docs/translation.md`, `docs/frontend.md`,
+`docs/api.md`, `docs/configuration.md`, `docs/development.md`, `docs/operations.md`.

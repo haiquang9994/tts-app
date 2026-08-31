@@ -25,6 +25,12 @@ class Settings:
     tts_timeout_seconds: int = 30
     max_text_length: int = 1000
     rate_limit_per_minute: int = 60
+    # Dịch: giới hạn riêng vì mỗi lần dán tốn nhiều request (MyMemory chỉ nhận
+    # 470 ký tự một lần) và hạn mức là theo NGÀY, tính chung cho cả máy chủ.
+    max_translate_length: int = 3000
+    translate_timeout_seconds: int = 20
+    # Kèm email nâng hạn mức ẩn danh từ 5.000 lên 50.000 ký tự mỗi ngày.
+    translate_email: str = ""
     cache_dir: Path = Path("mp3")
     cache_max_mb: int = 512
     cache_check_every: int = 50
@@ -56,6 +62,9 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         tts_timeout_seconds=_int(env, "TTS_TIMEOUT_SECONDS", 30),
         max_text_length=_int(env, "MAX_TEXT_LENGTH", 1000),
         rate_limit_per_minute=_int(env, "RATE_LIMIT_PER_MINUTE", 60),
+        max_translate_length=_int(env, "MAX_TRANSLATE_LENGTH", 3000),
+        translate_timeout_seconds=_int(env, "TRANSLATE_TIMEOUT_SECONDS", 20),
+        translate_email=env.get("TRANSLATE_EMAIL", ""),
         cache_dir=Path(env.get("CACHE_DIR", "mp3")),
         cache_max_mb=_int(env, "CACHE_MAX_MB", 512),
         cache_check_every=_int(env, "CACHE_CHECK_EVERY", 50),

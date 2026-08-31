@@ -3,7 +3,8 @@
 Toàn bộ qua biến môi trường, đọc trong `app/config.py` thành một `Settings` bất biến.
 `.env.example` được commit; `.env` thì không.
 
-**Không có secret nào** — `.env` chỉ chứa cổng, tốc độ và các ngưỡng.
+**Không có secret nào** — `.env` chỉ chứa cổng, tốc độ và các ngưỡng. `TRANSLATE_EMAIL` không
+phải secret: MyMemory dùng nó làm định danh hạn mức, không phải để xác thực.
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
@@ -14,6 +15,9 @@ Toàn bộ qua biến môi trường, đọc trong `app/config.py` thành một 
 | `TTS_TIMEOUT_SECONDS` | `30` | Timeout cho một lời gọi TTS |
 | `MAX_TEXT_LENGTH` | `1000` | Giới hạn ký tự mỗi request |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Hạn mức mỗi IP |
+| `MAX_TRANSLATE_LENGTH` | `3000` | Giới hạn ký tự mỗi lần dịch |
+| `TRANSLATE_TIMEOUT_SECONDS` | `20` | Timeout cho một lời gọi dịch |
+| `TRANSLATE_EMAIL` | rỗng | Gửi kèm để nâng hạn mức MyMemory từ 5.000 lên 50.000 ký tự/ngày |
 | `CACHE_DIR` | `mp3` | Thư mục cache |
 | `CACHE_MAX_MB` | `512` | Vượt ngưỡng thì xoá dần file cũ nhất |
 | `CACHE_CHECK_EVERY` | `50` | Số lần ghi giữa hai lần kiểm tra dung lượng cache |
@@ -29,3 +33,7 @@ Giá trị không phải số bị bỏ qua và lấy mặc định, thay vì l�
 Biên độ dồn cụm của rate limit (`BURST` trong `app/limits.py`, giá trị 20) là hằng số trong code
 chứ không đọc từ biến môi trường. Đáng nhớ khi thử nghiệm: đặt `RATE_LIMIT_PER_MINUTE=1` vẫn cho
 20 request đầu lọt qua.
+
+Hạn mức dịch tính theo **ngày** và theo **IP**, nên toàn bộ người dùng của một bản triển khai
+dùng chung một hạn mức. `MAX_TRANSLATE_LENGTH` để `3000` chứ không cao hơn vì MyMemory chỉ nhận
+470 ký tự mỗi lời gọi: một lần dán 3.000 ký tự đã tốn khoảng 7 lời gọi và mất vài giây.

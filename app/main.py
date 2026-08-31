@@ -17,6 +17,7 @@ from . import cache
 from .config import load_settings
 from .limits import RateLimiter, client_ip
 from .text import normalize
+from .translate import TranslateError, make_fetcher, translate
 from .tts import Synthesizer, TTSError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -31,6 +32,9 @@ log = logging.getLogger(__name__)
 
 synthesizer = Synthesizer(settings)
 limiter = RateLimiter(settings.rate_limit_per_minute)
+translate_fetcher = make_fetcher(
+    settings.translate_email, settings.translate_timeout_seconds
+)
 
 
 _HAS_LETTER_OR_DIGIT = re.compile(r"[^\W_]", re.UNICODE)
@@ -64,6 +68,10 @@ def _add_asset_versions(html: str) -> str:
 def _load_pages() -> None:
     for filename in ("index.html", "about.html"):
         _PAGES[filename] = _add_asset_versions((STATIC_DIR / filename).read_text("utf-8"))
+
+
+class TranslateRequest(BaseModel):
+    text: str
 
 
 class TTSRequest(BaseModel):
@@ -137,6 +145,39 @@ async def index_page() -> HTMLResponse:
 @app.get("/about/")
 async def about_page() -> HTMLResponse:
     return HTMLResponse(_PAGES["about.html"])
+
+
+@app.post("/api/translate")
+async def translate_to_vietnamese(payload: TranslateRequest, request: Request):
+    """Dịch sang tiếng Việt để người dùng xem lại trước khi thêm vào hàng đợi.
+
+    Hoàn toàn tách khỏi luồng TTS: hỏng ở đây thì giao diện giữ nguyên văn bản
+    gốc và mọi thứ khác chạy như cũ.
+    """
+    allowed, retry_after = limiter.allow(client_ip(request))
+    if not allowed:
+        return _error(
+            429,
+            "Bạn gửi quá nhanh, thử lại sau ít giây.",
+            headers={"Retry-After": str(max(1, int(retry_after) + 1))},
+        )
+
+    raw = payload.text
+    if not raw.strip():
+        return _error(422, "Trường 'text' không được rỗng.")
+    if len(raw) > settings.max_translate_length:
+        return _error(
+            413,
+            f"Văn bản quá dài để dịch, tối đa {settings.max_translate_length} ký tự.",
+        )
+
+    try:
+        translated = await translate(raw, fetch=translate_fetcher)
+    except TranslateError as exc:
+        log.error("Không dịch được: %s", exc)
+        return _error(503, "Dịch vụ dịch đang không phản hồi, thử lại sau ít phút.")
+
+    return {"text": translated}
 
 
 @app.post("/api/tts")
