@@ -51,7 +51,7 @@ Mã lỗi:
 | `413` | Văn bản vượt `MAX_TRANSLATE_LENGTH` |
 | `422` | Thiếu trường `text` hoặc văn bản rỗng |
 | `429` | Vượt rate limit theo IP, kèm header `Retry-After` |
-| `503` | MyMemory hỏng, hết hạn mức, hoặc từ chối |
+| `503` | Gemini hỏng, chưa cấu hình key, hoặc hết `GEMINI_MAX_PER_DAY` |
 
 Gặp `503` thì giao diện **giữ nguyên văn bản gốc** và chỉ hiện thông báo — người dùng vẫn nghe
 được bản tiếng Anh như trước.

@@ -64,11 +64,10 @@ voice, and a long outage does not re-hit the network on every replay.
 textarea in place, like the line-wrap button, so `text.py`, the audio cache and the queue are
 untouched and a translation outage cannot reach the primary voice.
 
-Translation chain (`Translator` in `app/translate.py`), mirroring the TTS chain:
-
-1. **Gemini** (`gemini-flash-lite-latest`) — default. Whole document in one call; the
-   requirements live in the prompt, so the masking/chunking machinery below is unused here.
-2. **MyMemory** — used when Gemini fails, has no key, or the daily budget is spent.
+`Translator` (`app/translate.py`) sends the whole document to **Gemini** in one call. There is no
+fallback provider on purpose: a `503` the user can see beats silently returning a much worse
+translation they mistake for a good one. A statistical translator was tried and removed — see
+[docs/translation.md](docs/translation.md) for the measurements.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/translation.md](docs/translation.md).
 
@@ -109,28 +108,19 @@ test or a config comment — do not "clean them up".
   killing the whole script.
 - Changing how audio is produced requires bumping `GTTS_VARIANT` / `EDGE_VARIANT` in `tts.py`;
   they are part of the cache key.
-- `_PROTECT` in `translate.py` must stay **one** regex applied in **one** pass. Sequential
-  `re.sub` calls let a later pattern re-wrap an earlier placeholder, so restore finishes
-  half-done and leaks placeholders into the output. Locked by
-  `test_placeholder_is_not_protected_again`.
-- Translation chunks are capped at 470 chars. Anonymous use gets `403 QUERY LENGTH LIMIT EXCEEDED`
-  above 500; with `TRANSLATE_EMAIL` that limit lifts, but at ~2000 chars MyMemory **silently
-  truncates** (2000 in, 1457 out, `200 OK`). 470 stays well clear of both.
-- MyMemory signals an exhausted quota with **HTTP 429**, not the documented `quotaFinished` flag.
-  It must raise `QuotaExhausted` so queued chunks stop; otherwise every chunk retries into a
-  service that is already saying stop. Quota is **per day, per IP** — all users share it.
-- Chunks are cached individually (`.txt` beside the `.mp3` files, same `CACHE_MAX_MB` budget),
-  keyed on the *masked* chunk body so an exact hit restores correctly; failed chunks are never
-  cached. Changing the provider requires bumping `TRANSLATE_VARIANT`.
-- `_LEADING_MARKUP` strips `#`/`-`/`>`/`1.` before sending: some `##`-prefixed chunks come back
-  untranslated. The exact trigger is not characterised, so the strip is defensive and there is
-  deliberately no test asserting MyMemory's failure mode.
-- MyMemory is an external, publicly shared translation memory. `protect()` runs before the
-  network call, so identifiers and paths never leave the server — but the prose does. Do not
-  reorder those two steps.
+- Translations are cached whole (`.txt` beside the `.mp3` files, same `CACHE_MAX_MB` budget),
+  keyed on `GEMINI_VARIANT` plus the model name; failed translations are never cached. Editing
+  the prompt in a way that changes output requires bumping `GEMINI_VARIANT` — changing the model
+  does not, it is already in the key.
 - `GEMINI_API_KEY` is the project's only real secret. It must never reach logs, error messages
   (the Gemini URL embeds the key, so the HTTP error body is dropped on purpose) or `/api/status`.
-  Locked by `test_status_never_leaks_the_api_key`.
+  Locked by `test_status_never_leaks_the_api_key`. It must be an API key from AI Studio starting
+  with `AIza`; an `AQ.…` token is a short-lived credential that expires within hours and leaves a
+  puzzling `401`.
+- The whole document goes to Gemini in **one** call. Splitting it repeats the 174-token system
+  prompt per call (36% dearer for a document read end to end) and multiplies request count
+  against a **per-day request** quota — per-line translation cannot finish one document a day on
+  the free tier.
 - `GEMINI_MAX_PER_DAY` is a **cost** ceiling, independent of Access, which is an **access**
   ceiling. It still holds if Access is misconfigured or a loop runs away. Budget is spent only on
   a real outbound call, so re-reading a cached document is free. Set it to `0` to disable Gemini
@@ -145,10 +135,8 @@ Every rule is deliberately narrow, and golden tests lock behaviour in **both** d
 must change, and what must stay untouched. Before widening any rule, read
 [docs/text-processing.md](docs/text-processing.md).
 
-Translation (`translate.py`) is a separate pipeline with the same philosophy: protect only what
-*measurably* breaks. Detection is by token **shape**, not by a keyword list — `POST` and `COPY`
-are ordinary English words that only context makes technical, so a list can never cover them.
-`cache` is deliberately absent from `TERMS` because "bộ nhớ cache" is already correct.
+Translation does **not** go through these stages: `translate.py` sends the user's raw text to
+Gemini and the requirements live in the prompt.
 
 The key boundary: only strip what is *purely syntax*. gTTS also pronounces `% $ = @ & ^ < >`, but
 those are content — "30%" should read as "ba mươi phần trăm". Stripping them is the bug, not the

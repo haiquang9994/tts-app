@@ -26,7 +26,7 @@ app/
 ├── main.py      khởi tạo FastAPI, khai báo route, kiểm tra đầu vào
 ├── config.py    đọc cấu hình từ biến môi trường
 ├── text.py      lọc Markdown, chuẩn hoá câu, viết lại đường dẫn cho dễ đọc
-├── translate.py dịch Anh → Việt, giữ nguyên token trông như code
+├── translate.py dịch Anh → Việt qua Gemini, cache và trần chi phí ngày
 ├── tts.py       chuỗi nhà cung cấp TTS, retry, single-flight
 ├── breaker.py   cầu dao và ngân sách gọi gTTS
 ├── cache.py     cache MP3 trên đĩa
@@ -43,7 +43,7 @@ Không database, không ffmpeg (dùng sox nhẹ hơn ~440MB), không build step 
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Luồng một request, chuỗi nhà cung cấp TTS, cache hai tầng, cầu dao, single-flight |
 | [docs/text-processing.md](docs/text-processing.md) | Ba tầng xử lý văn bản và ranh giới của từng tầng, kèm số đo |
-| [docs/translation.md](docs/translation.md) | Nút "Dịch": vì sao chọn MyMemory, và cách giữ nguyên định danh |
+| [docs/translation.md](docs/translation.md) | Nút "Dịch": vì sao phải dùng mô hình hiểu chỉ dẫn, và hai lớp chặn chi phí |
 | [docs/frontend.md](docs/frontend.md) | Hàng đợi phía client, xử lý lỗi, nút xuống dòng, các ràng buộc phải giữ |
 | [docs/api.md](docs/api.md) | Endpoint và mã lỗi |
 | [docs/configuration.md](docs/configuration.md) | Biến môi trường |

@@ -1,4 +1,4 @@
-"""Endpoint dịch. Không chạm mạng: fetcher luôn được tiêm bản giả."""
+"""Endpoint dịch. Không chạm mạng: nhà cung cấp luôn được tiêm bản giả."""
 import pytest
 from fastapi.testclient import TestClient
 
@@ -8,23 +8,24 @@ from app.limits import RateLimiter
 from app.translate import DailyBudget, TranslateError, Translator
 
 
+def _install(monkeypatch, settings, gemini, budget=None):
+    monkeypatch.setattr(main, "settings", settings)
+    monkeypatch.setattr(main, "translator", Translator(settings, gemini=gemini,
+                                                       budget=budget))
+    monkeypatch.setattr(main, "limiter", RateLimiter(settings.rate_limit_per_minute))
+
+
 @pytest.fixture
 def api(tmp_path, monkeypatch):
-    """Trả (client, calls). `calls` ghi lại từng đoạn gửi đi dịch."""
-    settings = Settings(cache_dir=tmp_path)
+    """Trả (client, calls). `calls` ghi lại từng văn bản gửi đi dịch."""
+    settings = Settings(cache_dir=tmp_path, gemini_api_key="k")
     calls: list[str] = []
 
-    def fetch(chunk: str) -> str:
-        calls.append(chunk)
-        return chunk.replace("Hello", "Xin chào").replace("world", "thế giới")
+    def gemini(text: str) -> str:
+        calls.append(text)
+        return text.replace("Hello", "Xin chào").replace("world", "thế giới")
 
-    monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(
-        main, "translator",
-        Translator(settings, gemini=fetch, mymemory=fetch,
-                   budget=DailyBudget(0)),   # tắt Gemini, đo đường MyMemory
-    )
-    monkeypatch.setattr(main, "limiter", RateLimiter(settings.rate_limit_per_minute))
+    _install(monkeypatch, settings, gemini)
     with TestClient(main.app) as client:
         yield client, calls
 
@@ -38,18 +39,13 @@ def test_translates_and_returns_text(api):
     assert calls == ["Hello world."]
 
 
-def test_keeps_code_like_tokens_in_english(api):
-    client, _ = api
-    res = client.post(
-        "/api/translate",
-        json={"text": "Hello world, run `npm install` for POST /api/tts."},
-    )
+def test_sends_the_whole_document_in_one_call(api):
+    """Cắt nhỏ làm system prompt lặp lại mỗi lời gọi và đốt hạn mức request."""
+    client, calls = api
+    document = "Hello world. " * 40
+    client.post("/api/translate", json={"text": document})
 
-    body = res.json()["text"]
-    assert "npm install" in body
-    assert "POST" in body
-    assert "/api/tts" in body
-    assert "Xin chào" in body
+    assert len(calls) == 1
 
 
 def test_rejects_empty_text(api):
@@ -73,17 +69,10 @@ def test_rejects_text_that_is_too_long(api):
 
 
 def test_reports_provider_failure_as_503(tmp_path, monkeypatch):
-    settings = Settings(cache_dir=tmp_path)
+    def broken(text: str) -> str:
+        raise TranslateError("Gemini trả HTTP 500")
 
-    def broken(chunk: str) -> str:
-        raise TranslateError("MyMemory đã hết hạn mức dịch trong ngày")
-
-    monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(
-        main, "translator",
-        Translator(settings, gemini=broken, mymemory=broken, budget=DailyBudget(0)),
-    )
-    monkeypatch.setattr(main, "limiter", RateLimiter(settings.rate_limit_per_minute))
+    _install(monkeypatch, Settings(cache_dir=tmp_path, gemini_api_key="k"), broken)
     with TestClient(main.app) as client:
         res = client.post("/api/translate", json={"text": "Hello world."})
 
@@ -91,16 +80,32 @@ def test_reports_provider_failure_as_503(tmp_path, monkeypatch):
     assert res.status_code == 503
 
 
+def test_reports_an_exhausted_budget_as_503(tmp_path, monkeypatch):
+    def gemini(text: str) -> str:  # pragma: no cover - không được gọi
+        raise AssertionError("hết ngân sách thì không được gọi ra ngoài")
+
+    settings = Settings(cache_dir=tmp_path, gemini_api_key="k", gemini_max_per_day=0)
+    _install(monkeypatch, settings, gemini, budget=DailyBudget(0))
+    with TestClient(main.app) as client:
+        res = client.post("/api/translate", json={"text": "Hello world."})
+
+    assert res.status_code == 503
+
+
+def test_missing_key_is_reported_not_crashed(tmp_path, monkeypatch):
+    _install(monkeypatch, Settings(cache_dir=tmp_path, gemini_api_key=""),
+             lambda t: "khong duoc goi")
+    with TestClient(main.app) as client:
+        res = client.post("/api/translate", json={"text": "Hello world."})
+
+    assert res.status_code == 503
+
+
 def test_rate_limit_applies(tmp_path, monkeypatch):
-    settings = Settings(cache_dir=tmp_path)
-    monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(
-        main, "translator",
-        Translator(settings, gemini=lambda t: t, mymemory=lambda c: c,
-                   budget=DailyBudget(0)),
-    )
-    # burst=0 nữa, vì BURST mặc định là 20 nên chỉ đặt 0/phút thì request
-    # đầu tiên vẫn lọt.
+    settings = Settings(cache_dir=tmp_path, gemini_api_key="k")
+    _install(monkeypatch, settings, lambda t: t)
+    # burst=0 nữa, vì BURST mặc định là 20 nên chỉ đặt 0/phút thì request đầu
+    # tiên vẫn lọt.
     monkeypatch.setattr(main, "limiter", RateLimiter(0, burst=0))
     with TestClient(main.app) as client:
         res = client.post("/api/translate", json={"text": "Hello world."})

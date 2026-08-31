@@ -25,15 +25,12 @@ class Settings:
     tts_timeout_seconds: int = 30
     max_text_length: int = 1000
     rate_limit_per_minute: int = 60
-    # Dịch: giới hạn riêng vì mỗi lần dán tốn nhiều request (MyMemory chỉ nhận
-    # 470 ký tự một lần) và hạn mức là theo NGÀY, tính chung cho cả máy chủ.
+    # Giới hạn riêng cho dịch: cả tài liệu đi trong một lời gọi Gemini, nên
+    # đây vừa là trần độ dài vừa là trần chi phí cho một lần bấm nút.
     max_translate_length: int = 10000
-    translate_timeout_seconds: int = 20
-    # Kèm email nâng hạn mức ẩn danh từ 5.000 lên 50.000 ký tự mỗi ngày.
-    translate_email: str = ""
-    # Gemini là nhà cung cấp dịch chính; để trống API key thì bỏ qua và dùng
-    # thẳng MyMemory. Trần NGÀY là chặn CHI PHÍ, độc lập với chuyện ai đăng
-    # nhập được: đặt 0 là tắt hẳn Gemini mà không phải xoá key.
+    # Gemini là nhà cung cấp dịch duy nhất; để trống API key thì /api/translate
+    # trả 503. Trần NGÀY là chặn CHI PHÍ, độc lập với chuyện ai đăng nhập được:
+    # đặt 0 là tắt hẳn Gemini mà không phải xoá key.
     gemini_api_key: str = ""
     gemini_model: str = "gemini-flash-lite-latest"
     gemini_max_per_day: int = 50
@@ -70,8 +67,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         max_text_length=_int(env, "MAX_TEXT_LENGTH", 1000),
         rate_limit_per_minute=_int(env, "RATE_LIMIT_PER_MINUTE", 60),
         max_translate_length=_int(env, "MAX_TRANSLATE_LENGTH", 10000),
-        translate_timeout_seconds=_int(env, "TRANSLATE_TIMEOUT_SECONDS", 20),
-        translate_email=env.get("TRANSLATE_EMAIL", ""),
         gemini_api_key=env.get("GEMINI_API_KEY", ""),
         gemini_model=env.get("GEMINI_MODEL", "gemini-flash-lite-latest"),
         gemini_max_per_day=_int(env, "GEMINI_MAX_PER_DAY", 50),

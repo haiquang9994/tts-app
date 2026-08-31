@@ -1,6 +1,6 @@
-"""Chuỗi nhà cung cấp dịch: Gemini trước, MyMemory dự phòng.
+"""Dịch qua Gemini: cache, trần chi phí ngày, và cách báo lỗi.
 
-Không có test nào chạm mạng: cả hai nhà cung cấp đều được tiêm bản giả.
+Không có test nào chạm mạng: nhà cung cấp luôn được tiêm bản giả.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def test_budget_reports_what_is_left():
     assert budget.remaining() == 4
 
 
-# --- Chuỗi nhà cung cấp ---
+# --- Dịch ---
 
 @pytest.fixture
 def settings(tmp_path):
@@ -48,62 +48,60 @@ def settings(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_uses_gemini_when_a_key_is_configured(settings):
+async def test_translates_through_gemini(settings):
     calls = []
 
     def gemini(text):
         calls.append(text)
         return "Bản dịch của Gemini."
 
-    def mymemory(chunk):  # pragma: no cover - không được gọi
-        raise AssertionError("không được chạm tới MyMemory khi Gemini chạy được")
-
-    out = await Translator(settings, gemini=gemini, mymemory=mymemory).translate("Hello.")
+    out = await Translator(settings, gemini=gemini).translate("Hello.")
     assert out == "Bản dịch của Gemini."
     assert calls == ["Hello."]
 
 
 @pytest.mark.asyncio
-async def test_falls_back_to_mymemory_when_gemini_fails(settings):
+async def test_reports_a_provider_failure(settings):
+    """Không còn lớp dự phòng: hỏng thì báo lỗi để giao diện giữ nguyên bản gốc,
+    còn hơn lặng lẽ trả về bản dịch kém mà người dùng tưởng là bản tốt."""
     def gemini(text):
         raise TranslateError("Gemini hỏng")
 
-    def mymemory(chunk):
-        return "Bản dịch dự phòng."
-
-    out = await Translator(settings, gemini=gemini, mymemory=mymemory).translate("Hello.")
-    assert out == "Bản dịch dự phòng."
+    with pytest.raises(TranslateError):
+        await Translator(settings, gemini=gemini).translate("Hello.")
 
 
 @pytest.mark.asyncio
-async def test_skips_gemini_when_the_daily_budget_is_gone(tmp_path):
+async def test_wraps_an_unexpected_error(settings):
+    """Lỗi mạng của urllib không nằm trong cây thừa kế gọn gàng nào."""
+    def gemini(text):
+        raise OSError("mạng hỏng")
+
+    with pytest.raises(TranslateError):
+        await Translator(settings, gemini=gemini).translate("Hello.")
+
+
+@pytest.mark.asyncio
+async def test_refuses_when_the_daily_budget_is_gone(tmp_path):
     """Trần ngày là lớp chặn CHI PHÍ, độc lập với việc ai đăng nhập được."""
     settings = Settings(cache_dir=tmp_path, gemini_api_key="k", gemini_max_per_day=0)
-    touched = []
 
     def gemini(text):  # pragma: no cover - không được gọi
         raise AssertionError("hết ngân sách thì không được gọi Gemini")
 
-    def mymemory(chunk):
-        touched.append(chunk)
-        return "Bản dịch dự phòng."
-
-    out = await Translator(settings, gemini=gemini, mymemory=mymemory).translate("Hello.")
-    assert out == "Bản dịch dự phòng."
-    assert touched
+    with pytest.raises(TranslateError, match="ngân sách"):
+        await Translator(settings, gemini=gemini).translate("Hello.")
 
 
 @pytest.mark.asyncio
-async def test_skips_gemini_when_no_key_is_configured(tmp_path):
+async def test_refuses_when_no_key_is_configured(tmp_path):
     settings = Settings(cache_dir=tmp_path, gemini_api_key="")
 
     def gemini(text):  # pragma: no cover - không được gọi
         raise AssertionError("không có key thì không được gọi Gemini")
 
-    out = await Translator(
-        settings, gemini=gemini, mymemory=lambda c: "Bản dịch dự phòng."
-    ).translate("Hello.")
-    assert out == "Bản dịch dự phòng."
+    with pytest.raises(TranslateError, match="GEMINI_API_KEY"):
+        await Translator(settings, gemini=gemini).translate("Hello.")
 
 
 @pytest.mark.asyncio
@@ -114,7 +112,7 @@ async def test_budget_is_not_spent_on_a_cache_hit(settings):
         calls.append(text)
         return "Bản dịch của Gemini."
 
-    translator = Translator(settings, gemini=gemini, mymemory=lambda c: "khong dung")
+    translator = Translator(settings, gemini=gemini)
     assert await translator.translate("Hello.") == "Bản dịch của Gemini."
     assert await translator.translate("Hello.") == "Bản dịch của Gemini."
 
@@ -123,8 +121,8 @@ async def test_budget_is_not_spent_on_a_cache_hit(settings):
 
 
 @pytest.mark.asyncio
-async def test_each_provider_caches_under_its_own_key(settings):
-    """Bản dịch dự phòng không được lấn bản dịch tốt, y như audio gTTS/edge-tts."""
+async def test_a_failed_translation_is_not_cached(settings):
+    """Cache bản hỏng thì lần sau vẫn hỏng mà không còn cơ hội gọi lại."""
     state = {"broken": True}
 
     def gemini(text):
@@ -132,17 +130,9 @@ async def test_each_provider_caches_under_its_own_key(settings):
             raise TranslateError("tạm hỏng")
         return "Bản dịch của Gemini."
 
-    translator = Translator(settings, gemini=gemini, mymemory=lambda c: "Bản dịch dự phòng.")
-    assert await translator.translate("Hello.") == "Bản dịch dự phòng."
+    translator = Translator(settings, gemini=gemini)
+    with pytest.raises(TranslateError):
+        await translator.translate("Hello.")
 
     state["broken"] = False
     assert await translator.translate("Hello.") == "Bản dịch của Gemini."
-
-
-@pytest.mark.asyncio
-async def test_raises_when_both_providers_fail(settings):
-    def broken(_):
-        raise TranslateError("hỏng")
-
-    with pytest.raises(TranslateError):
-        await Translator(settings, gemini=broken, mymemory=broken).translate("Hello.")

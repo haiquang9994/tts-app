@@ -8,8 +8,9 @@ ra log, không nằm trong thông báo lỗi (URL gọi Gemini có chứa key, n
 đi có chủ đích), và không xuất hiện trong `/api/status` — khoá bởi
 `test_status_never_leaks_the_api_key`.
 
-`TRANSLATE_EMAIL` thì không phải secret: MyMemory dùng nó làm định danh hạn mức, không phải để
-xác thực.
+Key phải là **API key** lấy từ [aistudio.google.com/apikey](https://aistudio.google.com/apikey),
+bắt đầu bằng `AIza`. Token dạng `AQ.…` là credential tạm thời, hết hạn sau vài giờ và để lại lỗi
+`401` khó đoán.
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
@@ -21,9 +22,7 @@ xác thực.
 | `MAX_TEXT_LENGTH` | `1000` | Giới hạn ký tự mỗi request |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Hạn mức mỗi IP |
 | `MAX_TRANSLATE_LENGTH` | `10000` | Giới hạn ký tự mỗi lần dịch |
-| `TRANSLATE_TIMEOUT_SECONDS` | `20` | Timeout cho một lời gọi dịch |
-| `TRANSLATE_EMAIL` | rỗng | Gửi kèm để nâng hạn mức MyMemory từ 5.000 lên 50.000 ký tự/ngày |
-| `GEMINI_API_KEY` | rỗng | Để trống thì bỏ qua Gemini, dùng thẳng MyMemory |
+| `GEMINI_API_KEY` | rỗng | Bắt buộc để dịch. Để trống thì `/api/translate` trả `503` |
 | `GEMINI_MODEL` | `gemini-flash-lite-latest` | Model dịch |
 | `GEMINI_MAX_PER_DAY` | `50` | Trần **chi phí** mỗi ngày; đặt `0` để tắt Gemini mà không xoá key |
 | `GEMINI_TIMEOUT_SECONDS` | `60` | Timeout một lời gọi Gemini |
@@ -43,9 +42,6 @@ Biên độ dồn cụm của rate limit (`BURST` trong `app/limits.py`, giá tr
 chứ không đọc từ biến môi trường. Đáng nhớ khi thử nghiệm: đặt `RATE_LIMIT_PER_MINUTE=1` vẫn cho
 20 request đầu lọt qua.
 
-Hạn mức dịch tính theo **ngày** và theo **IP**, nên toàn bộ người dùng của một bản triển khai
-dùng chung một hạn mức. MyMemory chỉ nhận 470 ký tự mỗi lời gọi, nên một lần dán 10.000 ký tự
-tốn khoảng 22 lời gọi — chạy 4 luồng song song thì mất vài giây.
-
-Bản dịch được cache trên đĩa theo từng đoạn, dùng chung thư mục và chung ngân sách
-`CACHE_MAX_MB` với audio. Dán lại tài liệu cũ thì không tốn hạn mức nào.
+Cả tài liệu đi trong một lời gọi Gemini, mất khoảng 2 giây. Bản dịch được cache trên đĩa theo cả
+tài liệu, dùng chung thư mục và chung ngân sách `CACHE_MAX_MB` với audio — dán lại tài liệu cũ
+không tốn tiền và **không ăn vào `GEMINI_MAX_PER_DAY`**.

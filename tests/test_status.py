@@ -79,8 +79,7 @@ def test_status_reports_the_translate_budget(tmp_path, monkeypatch):
 
     settings = Settings(cache_dir=tmp_path, gemini_api_key="k", gemini_max_per_day=7)
     monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(main, "translator", Translator(settings, gemini=lambda t: t,
-                                                       mymemory=lambda c: c))
+    monkeypatch.setattr(main, "translator", Translator(settings, gemini=lambda t: t))
     with TestClient(main.app) as client:
         body = client.get("/api/status").json()
 
@@ -94,13 +93,10 @@ def test_status_never_leaks_the_api_key(tmp_path, monkeypatch):
     from app.translate import Translator
 
     secret = "AIza-super-secret-key-value"
-    settings = Settings(cache_dir=tmp_path, gemini_api_key=secret,
-                        translate_email="someone@example.com")
+    settings = Settings(cache_dir=tmp_path, gemini_api_key=secret)
     monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(main, "translator", Translator(settings, gemini=lambda t: t,
-                                                       mymemory=lambda c: c))
+    monkeypatch.setattr(main, "translator", Translator(settings, gemini=lambda t: t))
     with TestClient(main.app) as client:
         res = client.get("/api/status")
 
     assert secret not in res.text
-    assert "someone@example.com" not in res.text
