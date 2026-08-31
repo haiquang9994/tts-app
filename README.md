@@ -93,8 +93,16 @@ Mã lỗi của `/api/tts`: `413` văn bản quá dài, `422` văn bản rỗng 
 
 ```bash
 cp .env.example .env
-docker compose up -d --build
+./deploy.sh
 ```
+
+`deploy.sh` build lại image, khởi động lại service, chờ container `healthy`, gọi thử `/healthz`,
+rồi mới xoá image cũ. Nếu container không lên được thì script dừng lại và **giữ nguyên image cũ**
+để lùi về. Thêm `--no-cache` để build lại từ đầu.
+
+Máy chủ này chạy nhiều project khác nhau, nên script chỉ xoá đúng image cũ của project này theo ID
+— không bao giờ dùng `docker image prune`. Image dangling còn lại chỉ được báo số lượng chứ không
+tự xoá.
 
 Mặc định phục vụ tại `http://127.0.0.1:8010`. Đổi cổng bằng `APP_PORT` trong `.env`.
 
