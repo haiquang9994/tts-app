@@ -72,3 +72,35 @@ def test_healthz_stays_green_even_when_gtts_is_blocked(api):
 
     assert client.get("/healthz").status_code == 200
     assert client.get("/api/status").json()["gtts"]["state"] == OPEN
+
+
+def test_status_reports_the_translate_budget(tmp_path, monkeypatch):
+    from app.translate import Translator
+
+    settings = Settings(cache_dir=tmp_path, gemini_api_key="k", gemini_max_per_day=7)
+    monkeypatch.setattr(main, "settings", settings)
+    monkeypatch.setattr(main, "translator", Translator(settings, gemini=lambda t: t,
+                                                       mymemory=lambda c: c))
+    with TestClient(main.app) as client:
+        body = client.get("/api/status").json()
+
+    assert body["translate"]["gemini_configured"] is True
+    assert body["translate"]["budget_per_day"] == 7
+    assert body["translate"]["budget_remaining_today"] == 7
+
+
+def test_status_never_leaks_the_api_key(tmp_path, monkeypatch):
+    """/api/status là endpoint chẩn đoán, không phải chỗ để lộ credential."""
+    from app.translate import Translator
+
+    secret = "AIza-super-secret-key-value"
+    settings = Settings(cache_dir=tmp_path, gemini_api_key=secret,
+                        translate_email="someone@example.com")
+    monkeypatch.setattr(main, "settings", settings)
+    monkeypatch.setattr(main, "translator", Translator(settings, gemini=lambda t: t,
+                                                       mymemory=lambda c: c))
+    with TestClient(main.app) as client:
+        res = client.get("/api/status")
+
+    assert secret not in res.text
+    assert "someone@example.com" not in res.text

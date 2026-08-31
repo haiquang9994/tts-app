@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -35,6 +36,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import cache
+from .config import Settings
 
 log = logging.getLogger(__name__)
 
@@ -323,3 +325,170 @@ def make_fetcher(email: str, timeout: int) -> Fetcher:
     def fetch(chunk: str) -> str:
         return _mymemory(chunk, email=email, timeout=timeout)
     return fetch
+
+
+# =============================================================================
+# Gemini — nhà cung cấp chính
+#
+# Với một mô hình hiểu chỉ dẫn thì toàn bộ bộ máy phía trên là thừa: không cần
+# bọc định danh, không cần cắt 470 ký tự, không cần tách dấu Markdown. Yêu cầu
+# viết thẳng vào prompt, và gửi cả tài liệu trong MỘT lời gọi.
+#
+# Đo trên chính CLAUDE.md, cùng một đoạn:
+#
+#     MyMemory  "một chuyến bay"        "đọc được trên toàn thế giới"
+#     Gemini    "single-flight"          "quyền đọc cho mọi người (world-readable)"
+#
+# Yêu cầu chú giải song ngữ trong prompt là thứ kéo chất lượng lên ngang bản
+# dịch thủ công người dùng vẫn dùng — nó là PHONG CÁCH, không phải năng lực
+# model, nên viết được thành chỉ dẫn.
+# =============================================================================
+
+GEMINI_VARIANT = "gemini-vi"
+
+_GEMINI_ENDPOINT = (
+    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+)
+
+_SYSTEM_PROMPT = (
+    "You are translating technical documentation from English to Vietnamese for a "
+    "developer who will read it to judge whether a design is sound.\n"
+    "Rules:\n"
+    "- Keep in English: identifiers, function names, file paths, CLI commands, "
+    "anything inside backticks, HTTP verbs, product names, error codes.\n"
+    "- For a technical term that has a common Vietnamese rendering, translate it and "
+    "put the English in parentheses on first use, e.g. "
+    '"giới hạn tốc độ (rate limit)", "lớp bao bọc (wrapper)".\n'
+    "- Preserve the Markdown structure and line breaks exactly as given.\n"
+    "- Natural Vietnamese with correct diacritics. Favour the meaning of the sentence "
+    "over word-by-word fidelity.\n"
+    "- Output only the translation, no preamble."
+)
+
+_SECONDS_PER_DAY = 86_400
+
+
+class DailyBudget:
+    """Trần cứng số lần gọi mỗi ngày.
+
+    Đây là lớp chặn CHI PHÍ, độc lập với lớp chặn TRUY CẬP. Cloudflare Access
+    quyết định ai vào được; cái này quyết định tiêu được bao nhiêu — nên nó vẫn
+    có tác dụng khi Access bị cấu hình sai, hoặc khi chính ta để một vòng lặp
+    chạy hỏng.
+
+    Cố ý KHÔNG dùng ProviderGuard: cầu dao đó là để tránh bị Google chặn, còn ở
+    đây ta là khách trả tiền. Ngữ nghĩa "50 lần mỗi ngày" cũng rõ hơn hẳn một
+    token bucket nhỏ giọt theo giờ.
+    """
+
+    def __init__(self, max_per_day: int, clock=time.time) -> None:
+        self._max = max_per_day
+        self._clock = clock
+        self._day: int | None = None
+        self._used = 0
+
+    def _roll_over(self) -> None:
+        day = int(self._clock() // _SECONDS_PER_DAY)
+        if day != self._day:
+            self._day = day
+            self._used = 0
+
+    def allow(self) -> bool:
+        self._roll_over()
+        if self._used >= self._max:
+            return False
+        self._used += 1
+        return True
+
+    def remaining(self) -> int:
+        self._roll_over()
+        return max(0, self._max - self._used)
+
+
+def gemini_translate(text: str, *, api_key: str, model: str, timeout: int) -> str:
+    """Dịch cả tài liệu bằng một lời gọi Gemini."""
+    body = {
+        "systemInstruction": {"parts": [{"text": _SYSTEM_PROMPT}]},
+        "contents": [{"role": "user", "parts": [{"text": text}]}],
+        # Nhiệt độ thấp: đây là việc dịch, không phải việc sáng tác.
+        "generationConfig": {"temperature": 0.2},
+    }
+    request = urllib.request.Request(
+        f"{_GEMINI_ENDPOINT.format(model=model)}?key={urllib.parse.quote(api_key)}",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as exc:
+        # KHÔNG đưa nội dung lỗi vào thông báo: URL có chứa API key.
+        raise TranslateError(f"Gemini trả HTTP {exc.code}") from exc
+
+    try:
+        parts = payload["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError) as exc:
+        # Thường là bị chặn bởi bộ lọc an toàn, hoặc cụt vì hết token.
+        raise TranslateError(f"Gemini không trả về nội dung: {str(payload)[:200]}") from exc
+
+    out = "".join(p.get("text", "") for p in parts).strip()
+    if not out:
+        raise TranslateError("Gemini trả về chuỗi rỗng")
+    return out
+
+
+def make_gemini_fetcher(api_key: str, model: str, timeout: int) -> Fetcher:
+    def fetch(text: str) -> str:
+        return gemini_translate(text, api_key=api_key, model=model, timeout=timeout)
+    return fetch
+
+
+class Translator:
+    """Chuỗi nhà cung cấp: Gemini trước, MyMemory dự phòng.
+
+    Mỗi nhà cung cấp có khoá cache riêng, đúng lối GTTS_VARIANT/EDGE_VARIANT
+    trong tts.py: bản dịch dự phòng không bao giờ lấn bản dịch tốt, nên một đợt
+    Gemini hỏng không khoá vĩnh viễn tài liệu vào bản kém hơn.
+    """
+
+    def __init__(
+        self,
+        settings: Settings,
+        gemini: Fetcher | None = None,
+        mymemory: Fetcher | None = None,
+        budget: DailyBudget | None = None,
+    ) -> None:
+        self._settings = settings
+        self._gemini = gemini or make_gemini_fetcher(
+            settings.gemini_api_key, settings.gemini_model,
+            settings.gemini_timeout_seconds,
+        )
+        self._mymemory = mymemory or make_fetcher(
+            settings.translate_email, settings.translate_timeout_seconds
+        )
+        self.budget = budget or DailyBudget(settings.gemini_max_per_day)
+
+    async def translate(self, text: str) -> str:
+        cache_dir = self._settings.cache_dir
+        key = cache.cache_key(text, GEMINI_VARIANT, self._settings.gemini_model)
+
+        cached = cache.read(cache_dir, key, _CACHE_SUFFIX)
+        if cached is not None:
+            return cached.decode("utf-8")
+
+        # Ngân sách chỉ bị tiêu khi thật sự gọi ra ngoài, nên đọc lại tài liệu
+        # cũ không ăn vào trần ngày.
+        if self._settings.gemini_api_key and self.budget.allow():
+            try:
+                out = await asyncio.to_thread(self._gemini, text)
+            except Exception as exc:
+                log.warning("Gemini hỏng, chuyển sang MyMemory: %s", exc)
+            else:
+                cache.write(cache_dir, key, out.encode("utf-8"), _CACHE_SUFFIX)
+                return out
+        elif not self._settings.gemini_api_key:
+            log.info("Chưa cấu hình GEMINI_API_KEY, dùng thẳng MyMemory")
+        else:
+            log.warning("Hết ngân sách Gemini trong ngày, chuyển sang MyMemory")
+
+        return await translate(text, fetch=self._mymemory, cache_dir=cache_dir)

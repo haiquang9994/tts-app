@@ -60,9 +60,15 @@ retries), and recovery probes with a single request after a doubling cooldown.
 Each provider's audio is cached under its own key, so fallback audio never shadows the preferred
 voice, and a long outage does not re-hit the network on every replay.
 
-`POST /api/translate` (MyMemory) is deliberately **outside** this flow. The "Dịch" button rewrites
-the textarea in place, like the line-wrap button, so `text.py`, the audio cache and the queue are
+`POST /api/translate` is deliberately **outside** this flow. The "Dịch" button rewrites the
+textarea in place, like the line-wrap button, so `text.py`, the audio cache and the queue are
 untouched and a translation outage cannot reach the primary voice.
+
+Translation chain (`Translator` in `app/translate.py`), mirroring the TTS chain:
+
+1. **Gemini** (`gemini-flash-lite-latest`) — default. Whole document in one call; the
+   requirements live in the prompt, so the masking/chunking machinery below is unused here.
+2. **MyMemory** — used when Gemini fails, has no key, or the daily budget is spent.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/translation.md](docs/translation.md).
 
@@ -85,6 +91,10 @@ test or a config comment — do not "clean them up".
   with `operation not permitted`.
 - `user: "1001:33"` must match the host owner of `mp3/`. On this host `ubuntu` is uid 1001,
   gid 33, not the usual 1000:1000.
+- The public hostname sits behind **Cloudflare Access** (single-user policy). `curl` against
+  `langnghe.hipingu.health` returns a Cloudflare sign-in page, not the app — that is expected,
+  not an outage. Docker's healthcheck and `deploy.sh` both hit `localhost:8000` and are
+  unaffected. Access is what makes it safe to hold a paid API key server-side.
 
 **Code:**
 
@@ -118,6 +128,13 @@ test or a config comment — do not "clean them up".
 - MyMemory is an external, publicly shared translation memory. `protect()` runs before the
   network call, so identifiers and paths never leave the server — but the prose does. Do not
   reorder those two steps.
+- `GEMINI_API_KEY` is the project's only real secret. It must never reach logs, error messages
+  (the Gemini URL embeds the key, so the HTTP error body is dropped on purpose) or `/api/status`.
+  Locked by `test_status_never_leaks_the_api_key`.
+- `GEMINI_MAX_PER_DAY` is a **cost** ceiling, independent of Access, which is an **access**
+  ceiling. It still holds if Access is misconfigured or a loop runs away. Budget is spent only on
+  a real outbound call, so re-reading a cached document is free. Set it to `0` to disable Gemini
+  without removing the key.
 
 ## Text processing
 

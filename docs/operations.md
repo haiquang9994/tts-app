@@ -78,3 +78,18 @@ cầu dao vẫn đóng và không phải sự cố.
 
 Rate limit chỉ chặn được lạm dụng nếu `CF-Connecting-IP` tới nơi. Nếu ngờ nó không tới, hậu quả là
 mọi người dùng chung một hạn mức thay vì mỗi người một hạn mức.
+
+## Cloudflare Access
+
+Tên miền công khai nằm sau **Cloudflare Access** với policy một người dùng. Gọi `curl` vào
+`https://langnghe.hipingu.health` sẽ trả về trang đăng nhập của Cloudflare chứ không phải app —
+**đó là đúng, không phải sự cố**.
+
+Healthcheck của Docker và smoke test trong `deploy.sh` đều gọi `localhost:8000`, không đi qua
+Cloudflare, nên Access không ảnh hưởng tới deploy.
+
+Access chính là thứ khiến việc giữ một API key trả phí ở phía server trở nên an toàn. Trước khi
+có nó, trang public đồng nghĩa với việc bất kỳ ai cũng tiêu được tiền của chủ sở hữu.
+
+Đây là lớp chặn **truy cập**. Lớp chặn **chi phí** là `GEMINI_MAX_PER_DAY`, độc lập hoàn toàn —
+xem [translation.md](translation.md).

@@ -6,7 +6,49 @@ nhập thành tiếng Việt, mọi thứ phía sau chạy y như cũ.
 Cách gắn này là có chủ đích. Dịch **không** nằm trong luồng TTS, nên `text.py`, cache audio và
 hàng đợi không hề thay đổi, và một sự cố ở phía dịch không thể chạm tới giọng đọc chính.
 
-## Vì sao là MyMemory
+## Chuỗi nhà cung cấp
+
+```
+Gemini flash-lite  →  hỏng / hết ngân sách ngày  →  MyMemory  →  hỏng  →  giữ nguyên bản gốc
+```
+
+Mỗi tầng có khoá cache riêng, đúng lối `GTTS_VARIANT`/`EDGE_VARIANT` trong `tts.py`: bản dịch dự
+phòng không bao giờ lấn bản dịch tốt, nên một đợt Gemini hỏng không khoá vĩnh viễn tài liệu vào
+bản kém hơn.
+
+### Gemini: mô hình hiểu chỉ dẫn xoá gần hết bộ máy bên dưới
+
+Toàn bộ phần chống đỡ máy dịch thống kê — bọc định danh, cắt 470 ký tự, tách dấu Markdown, chạy
+song song, thử lại từng đoạn — **không dùng tới** ở đường Gemini. Gửi cả tài liệu trong một lời
+gọi, mọi yêu cầu viết thẳng vào prompt.
+
+Đo trên chính `CLAUDE.md`, cùng một đoạn:
+
+| Gốc | MyMemory | Gemini flash-lite |
+|---|---|---|
+| `single-flight` | "một chuyến bay" | `single-flight` |
+| `world-readable` | "đọc được trên toàn thế giới" | quyền đọc cho mọi người (world-readable) |
+| `POST /api/tts` | "BÀI /api/tts" | `POST /api/tts` |
+| `on purpose` | "về mục đích" | một cách có chủ đích |
+
+Yêu cầu **chú giải song ngữ** trong prompt — *"giới hạn tốc độ (rate limit)"* — là thứ kéo chất
+lượng lên ngang bản dịch thủ công. Nó là PHONG CÁCH chứ không phải năng lực model, nên viết được
+thành chỉ dẫn.
+
+Chi phí đo được: 1,9 giây và ~$0,002 cho một lần dán 10.000 ký tự.
+
+### Trần chi phí theo ngày
+
+`GEMINI_MAX_PER_DAY` là lớp phòng thủ **độc lập** với Cloudflare Access. Access quyết định *ai vào
+được*; trần ngày quyết định *tiêu được bao nhiêu* — nên nó vẫn có tác dụng khi Access bị cấu hình
+sai, hoặc khi chính ta để một vòng lặp chạy hỏng. Hết trần thì lùi về MyMemory, không chết.
+
+Cố ý **không** dùng `ProviderGuard`: cầu dao đó sinh ra để tránh bị Google chặn, còn ở đây ta là
+khách trả tiền. Ngữ nghĩa "50 lần mỗi ngày" cũng rõ hơn một token bucket nhỏ giọt theo giờ.
+
+Ngân sách chỉ bị tiêu khi **thật sự gọi ra ngoài**, nên đọc lại tài liệu cũ không ăn vào trần.
+
+## Vì sao MyMemory làm lớp dự phòng
 
 Đo tháng 8/2026, từ chính máy chủ này:
 

@@ -31,6 +31,13 @@ class Settings:
     translate_timeout_seconds: int = 20
     # Kèm email nâng hạn mức ẩn danh từ 5.000 lên 50.000 ký tự mỗi ngày.
     translate_email: str = ""
+    # Gemini là nhà cung cấp dịch chính; để trống API key thì bỏ qua và dùng
+    # thẳng MyMemory. Trần NGÀY là chặn CHI PHÍ, độc lập với chuyện ai đăng
+    # nhập được: đặt 0 là tắt hẳn Gemini mà không phải xoá key.
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-flash-lite-latest"
+    gemini_max_per_day: int = 50
+    gemini_timeout_seconds: int = 60
     cache_dir: Path = Path("mp3")
     cache_max_mb: int = 512
     cache_check_every: int = 50
@@ -65,6 +72,10 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         max_translate_length=_int(env, "MAX_TRANSLATE_LENGTH", 10000),
         translate_timeout_seconds=_int(env, "TRANSLATE_TIMEOUT_SECONDS", 20),
         translate_email=env.get("TRANSLATE_EMAIL", ""),
+        gemini_api_key=env.get("GEMINI_API_KEY", ""),
+        gemini_model=env.get("GEMINI_MODEL", "gemini-flash-lite-latest"),
+        gemini_max_per_day=_int(env, "GEMINI_MAX_PER_DAY", 50),
+        gemini_timeout_seconds=_int(env, "GEMINI_TIMEOUT_SECONDS", 60),
         cache_dir=Path(env.get("CACHE_DIR", "mp3")),
         cache_max_mb=_int(env, "CACHE_MAX_MB", 512),
         cache_check_every=_int(env, "CACHE_CHECK_EVERY", 50),

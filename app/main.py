@@ -17,7 +17,7 @@ from . import cache
 from .config import load_settings
 from .limits import RateLimiter, client_ip
 from .text import normalize
-from .translate import TranslateError, make_fetcher, translate
+from .translate import TranslateError, Translator
 from .tts import Synthesizer, TTSError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,9 +32,7 @@ log = logging.getLogger(__name__)
 
 synthesizer = Synthesizer(settings)
 limiter = RateLimiter(settings.rate_limit_per_minute)
-translate_fetcher = make_fetcher(
-    settings.translate_email, settings.translate_timeout_seconds
-)
+translator = Translator(settings)
 
 
 _HAS_LETTER_OR_DIGIT = re.compile(r"[^\W_]", re.UNICODE)
@@ -120,11 +118,21 @@ async def status() -> dict:
     TTS chập chờn không có nghĩa là tiến trình chết.
     """
     files = list(settings.cache_dir.glob("*.mp3"))
+    translations = list(settings.cache_dir.glob("*.txt"))
     return {
         "gtts": synthesizer.guard.status(),
+        "translate": {
+            # Không bao giờ trả về chính API key, chỉ trả về việc đã cấu hình
+            # hay chưa.
+            "gemini_configured": bool(settings.gemini_api_key),
+            "gemini_model": settings.gemini_model,
+            "budget_remaining_today": translator.budget.remaining(),
+            "budget_per_day": settings.gemini_max_per_day,
+        },
         "cache": {
             "files": len(files),
             "bytes": sum(p.stat().st_size for p in files),
+            "translations": len(translations),
         },
     }
 
@@ -172,9 +180,7 @@ async def translate_to_vietnamese(payload: TranslateRequest, request: Request):
         )
 
     try:
-        translated = await translate(
-            raw, fetch=translate_fetcher, cache_dir=settings.cache_dir
-        )
+        translated = await translator.translate(raw)
     except TranslateError as exc:
         log.error("Không dịch được: %s", exc)
         return _error(503, "Không dịch được lúc này, thử lại sau ít phút.")

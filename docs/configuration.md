@@ -3,8 +3,13 @@
 Toàn bộ qua biến môi trường, đọc trong `app/config.py` thành một `Settings` bất biến.
 `.env.example` được commit; `.env` thì không.
 
-**Không có secret nào** — `.env` chỉ chứa cổng, tốc độ và các ngưỡng. `TRANSLATE_EMAIL` không
-phải secret: MyMemory dùng nó làm định danh hạn mức, không phải để xác thực.
+`GEMINI_API_KEY` **là secret thật** và là secret duy nhất của project. Nó không bao giờ được ghi
+ra log, không nằm trong thông báo lỗi (URL gọi Gemini có chứa key, nên phần thân lỗi HTTP bị bỏ
+đi có chủ đích), và không xuất hiện trong `/api/status` — khoá bởi
+`test_status_never_leaks_the_api_key`.
+
+`TRANSLATE_EMAIL` thì không phải secret: MyMemory dùng nó làm định danh hạn mức, không phải để
+xác thực.
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
@@ -18,6 +23,10 @@ phải secret: MyMemory dùng nó làm định danh hạn mức, không phải �
 | `MAX_TRANSLATE_LENGTH` | `10000` | Giới hạn ký tự mỗi lần dịch |
 | `TRANSLATE_TIMEOUT_SECONDS` | `20` | Timeout cho một lời gọi dịch |
 | `TRANSLATE_EMAIL` | rỗng | Gửi kèm để nâng hạn mức MyMemory từ 5.000 lên 50.000 ký tự/ngày |
+| `GEMINI_API_KEY` | rỗng | Để trống thì bỏ qua Gemini, dùng thẳng MyMemory |
+| `GEMINI_MODEL` | `gemini-flash-lite-latest` | Model dịch |
+| `GEMINI_MAX_PER_DAY` | `50` | Trần **chi phí** mỗi ngày; đặt `0` để tắt Gemini mà không xoá key |
+| `GEMINI_TIMEOUT_SECONDS` | `60` | Timeout một lời gọi Gemini |
 | `CACHE_DIR` | `mp3` | Thư mục cache |
 | `CACHE_MAX_MB` | `512` | Vượt ngưỡng thì xoá dần file cũ nhất |
 | `CACHE_CHECK_EVERY` | `50` | Số lần ghi giữa hai lần kiểm tra dung lượng cache |

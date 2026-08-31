@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from app import main
 from app.config import Settings
 from app.limits import RateLimiter
-from app.translate import TranslateError
+from app.translate import DailyBudget, TranslateError, Translator
 
 
 @pytest.fixture
@@ -19,7 +19,11 @@ def api(tmp_path, monkeypatch):
         return chunk.replace("Hello", "Xin chào").replace("world", "thế giới")
 
     monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(main, "translate_fetcher", fetch)
+    monkeypatch.setattr(
+        main, "translator",
+        Translator(settings, gemini=fetch, mymemory=fetch,
+                   budget=DailyBudget(0)),   # tắt Gemini, đo đường MyMemory
+    )
     monkeypatch.setattr(main, "limiter", RateLimiter(settings.rate_limit_per_minute))
     with TestClient(main.app) as client:
         yield client, calls
@@ -75,7 +79,10 @@ def test_reports_provider_failure_as_503(tmp_path, monkeypatch):
         raise TranslateError("MyMemory đã hết hạn mức dịch trong ngày")
 
     monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(main, "translate_fetcher", broken)
+    monkeypatch.setattr(
+        main, "translator",
+        Translator(settings, gemini=broken, mymemory=broken, budget=DailyBudget(0)),
+    )
     monkeypatch.setattr(main, "limiter", RateLimiter(settings.rate_limit_per_minute))
     with TestClient(main.app) as client:
         res = client.post("/api/translate", json={"text": "Hello world."})
@@ -87,7 +94,11 @@ def test_reports_provider_failure_as_503(tmp_path, monkeypatch):
 def test_rate_limit_applies(tmp_path, monkeypatch):
     settings = Settings(cache_dir=tmp_path)
     monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(main, "translate_fetcher", lambda chunk: chunk)
+    monkeypatch.setattr(
+        main, "translator",
+        Translator(settings, gemini=lambda t: t, mymemory=lambda c: c,
+                   budget=DailyBudget(0)),
+    )
     # burst=0 nữa, vì BURST mặc định là 20 nên chỉ đặt 0/phút thì request
     # đầu tiên vẫn lọt.
     monkeypatch.setattr(main, "limiter", RateLimiter(0, burst=0))
