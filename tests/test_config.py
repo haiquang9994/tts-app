@@ -3,7 +3,7 @@ from pathlib import Path
 from app.config import DEFAULT_VOICE, VOICES, load_settings
 
 
-def test_load_settings_dung_mac_dinh_khi_env_rong():
+def test_uses_defaults_when_env_is_empty():
     s = load_settings({})
     assert s.tts_fallback_voice == "vi-VN-HoaiMyNeural"
     assert s.tts_rate == "+20%"
@@ -17,18 +17,18 @@ def test_load_settings_dung_mac_dinh_khi_env_rong():
     assert s.log_level == "INFO"
 
 
-def test_load_settings_doc_gia_tri_tu_env():
+def test_reads_values_from_env():
     s = load_settings({"TTS_RATE": "+50%", "MAX_TEXT_LENGTH": "42", "CACHE_DIR": "/data/mp3"})
     assert s.tts_rate == "+50%"
     assert s.max_text_length == 42
     assert s.cache_dir == Path("/data/mp3")
 
 
-def test_load_settings_bo_qua_so_khong_hop_le_va_lay_mac_dinh():
+def test_ignores_invalid_numbers_and_uses_default():
     s = load_settings({"MAX_TEXT_LENGTH": "khong-phai-so"})
     assert s.max_text_length == 1000
 
 
-def test_allowlist_giong_dung_hai_giong_tieng_viet():
+def test_allowlist_has_both_vietnamese_voices():
     assert set(VOICES) == {"vi-VN-HoaiMyNeural", "vi-VN-NamMinhNeural"}
     assert DEFAULT_VOICE in VOICES

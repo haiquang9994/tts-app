@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-def test_healthz_tra_ve_ok():
+def test_healthz_returns_ok():
     with TestClient(app) as client:
         res = client.get("/healthz")
     assert res.status_code == 200

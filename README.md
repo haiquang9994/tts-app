@@ -14,10 +14,28 @@ trên đĩa, nếu trượt thì gọi TTS rồi trả về MP3 dạng base64. H
 Chuỗi nhà cung cấp TTS:
 
 1. **gTTS** (Google) — mặc định. Tăng tốc `+20%` bằng hiệu ứng `tempo` của sox, giữ nguyên cao độ.
-2. **edge-tts** (Microsoft, giọng HoaiMy) — chỉ dùng khi gTTS hỏng, không đổi tốc độ.
+2. **edge-tts** (Microsoft, giọng HoaiMy) — dùng khi gTTS hỏng hoặc cầu dao đang mở, không đổi tốc độ.
 
-Kết quả từ nhà cung cấp dự phòng **không được ghi vào cache**, để khi gTTS hồi phục thì câu đó
-được đọc lại bằng giọng mong muốn.
+**Cache hai tầng:** audio của mỗi nhà cung cấp nằm dưới khoá riêng. Tra khoá gTTS trước, chỉ khi
+cầu dao mở mới tra tới khoá edge-tts. Nhờ vậy giọng dự phòng không lấn giọng mặc định, mà một đợt
+Google chặn kéo dài cũng không khiến mỗi lần nghe lại đều phải gọi ra ngoài.
+
+**Cầu dao gTTS** (`app/breaker.py`) — chặn trước khi Google chặn mình:
+
+- *Ngân sách chủ động*: tối đa `GTTS_MAX_PER_MINUTE` lần gọi mỗi phút. Hết lượt thì dùng thẳng
+  edge-tts, không chạm tới Google.
+- *Phản ứng*: HTTP 429/403 mở cầu dao ngay lập tức (cố thêm chỉ làm bị chặn lâu hơn, nên cũng
+  không retry). Lỗi khác thì đếm, đủ `GTTS_FAILURE_THRESHOLD` lần liên tiếp mới mở.
+- *Hồi phục*: sau khoảng nghỉ thì thử đúng một request để dò; hỏng nữa thì khoảng nghỉ nhân đôi,
+  tối đa `GTTS_MAX_COOLDOWN_SECONDS`.
+
+Xem trạng thái bằng `GET /api/status`.
+
+**Đọc đường dẫn:** gTTS đánh vần từng chữ cái khi gặp dấu chấm đứng trước chữ, đo được bằng thời
+lượng audio — `.claude/features/client-surface.md` mất 9.31 giây. Hàm `speak_paths` viết lại thành
+`chấm claude features client surface chấm md` (4.06 giây). Chỉ áp cho gTTS; edge-tts đọc đường dẫn
+vốn đã ổn. Số phiên bản và số tiền (`3.12.4`, `1.500.000`) không bị đụng tới vì sau dấu chấm là số
+chứ không phải chữ.
 
 Cả hai chạy hoàn toàn phía server, không cần trình duyệt hay Chromium nào trong container.
 Người dùng không chọn giọng hay tốc độ — giao diện không có tuỳ chọn đó.
@@ -63,6 +81,10 @@ Xem `.env.example`. Đáng chú ý:
 | `MAX_TEXT_LENGTH` | `1000` | Giới hạn ký tự mỗi request |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Hạn mức mỗi IP |
 | `CACHE_MAX_MB` | `512` | Vượt ngưỡng thì xoá file cũ nhất |
+| `GTTS_MAX_PER_MINUTE` | `20` | Ngân sách gọi gTTS mỗi phút, hết thì dùng edge-tts |
+| `GTTS_FAILURE_THRESHOLD` | `3` | Số lần hỏng liên tiếp trước khi mở cầu dao |
+| `GTTS_COOLDOWN_SECONDS` | `300` | Khoảng nghỉ khi cầu dao mở |
+| `GTTS_MAX_COOLDOWN_SECONDS` | `3600` | Trần của khoảng nghỉ sau khi nhân đôi nhiều lần |
 
 ## Lưu ý vận hành
 

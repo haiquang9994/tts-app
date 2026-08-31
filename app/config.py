@@ -29,6 +29,12 @@ class Settings:
     cache_max_mb: int = 512
     cache_check_every: int = 50
     log_level: str = "INFO"
+    # Ngân sách gọi gTTS mỗi phút. Hết lượt thì dùng thẳng edge-tts, không
+    # chạm tới Google — đây là phần chặn trước khi bị chặn.
+    gtts_max_per_minute: int = 20
+    gtts_failure_threshold: int = 3
+    gtts_cooldown_seconds: int = 300
+    gtts_max_cooldown_seconds: int = 3600
 
 
 def _int(env: Mapping[str, str], name: str, default: int) -> int:
@@ -54,4 +60,8 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         cache_max_mb=_int(env, "CACHE_MAX_MB", 512),
         cache_check_every=_int(env, "CACHE_CHECK_EVERY", 50),
         log_level=env.get("LOG_LEVEL", "INFO"),
+        gtts_max_per_minute=_int(env, "GTTS_MAX_PER_MINUTE", 20),
+        gtts_failure_threshold=_int(env, "GTTS_FAILURE_THRESHOLD", 3),
+        gtts_cooldown_seconds=_int(env, "GTTS_COOLDOWN_SECONDS", 300),
+        gtts_max_cooldown_seconds=_int(env, "GTTS_MAX_COOLDOWN_SECONDS", 3600),
     )

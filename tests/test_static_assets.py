@@ -18,14 +18,14 @@ from app.main import STATIC_DIR
 TEP_TINH = sorted(p for p in STATIC_DIR.rglob("*") if p.is_file())
 
 
-def test_co_du_cac_tep_tinh_can_thiet():
+def test_all_required_static_files_exist():
     ten = {p.name for p in TEP_TINH}
     assert {"index.html", "about.html", "app.js", "style.css"} <= ten
     assert {"play.png", "pause.png", "end.png", "check.png", "remove.png"} <= ten
 
 
 @pytest.mark.parametrize("path", TEP_TINH, ids=lambda p: p.name)
-def test_moi_tep_tinh_deu_cho_moi_user_doc(path):
+def test_every_static_file_is_world_readable(path):
     mode = path.stat().st_mode
     assert mode & stat.S_IROTH, (
         f"{path} không cho 'other' đọc (mode {oct(stat.S_IMODE(mode))}). "
@@ -34,5 +34,5 @@ def test_moi_tep_tinh_deu_cho_moi_user_doc(path):
 
 
 @pytest.mark.parametrize("path", TEP_TINH, ids=lambda p: p.name)
-def test_khong_co_tep_tinh_nao_rong(path):
+def test_no_static_file_is_empty(path):
     assert path.stat().st_size > 0

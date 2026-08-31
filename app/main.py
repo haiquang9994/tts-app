@@ -33,20 +33,20 @@ synthesizer = Synthesizer(settings)
 limiter = RateLimiter(settings.rate_limit_per_minute)
 
 
-_CO_CHU_HOAC_SO = re.compile(r"[^\W_]", re.UNICODE)
+_HAS_LETTER_OR_DIGIT = re.compile(r"[^\W_]", re.UNICODE)
 
 # Đường dẫn tài nguyên tĩnh xuất hiện trong HTML, để gắn thêm phiên bản.
-_DUONG_DAN_TAI_NGUYEN = re.compile(r"/static/[A-Za-z0-9_./-]+?\.(?:js|css|png|svg)")
+_ASSET_PATH_RE = re.compile(r"/static/[A-Za-z0-9_./-]+?\.(?:js|css|png|svg)")
 
 # HTML đã gắn phiên bản, dựng một lần lúc khởi động.
-_TRANG: dict[str, str] = {}
+_PAGES: dict[str, str] = {}
 
 
-def _bam_noi_dung(p: Path) -> str:
+def _content_hash(p: Path) -> str:
     return hashlib.md5(p.read_bytes()).hexdigest()[:10]
 
 
-def _gan_phien_ban(html: str) -> str:
+def _add_asset_versions(html: str) -> str:
     """Thêm ?v=<băm nội dung> vào mọi đường dẫn tĩnh trong HTML.
 
     Cloudflare cache tài nguyên tĩnh nhiều giờ. Không có bước này thì sau mỗi
@@ -54,16 +54,16 @@ def _gan_phien_ban(html: str) -> str:
     trang lỗi. Băm theo nội dung nên URL chỉ đổi khi file thật sự đổi.
     """
 
-    def thay(m: re.Match[str]) -> str:
+    def replace_one(m: re.Match[str]) -> str:
         p = STATIC_DIR / m.group(0)[len("/static/"):]
-        return f"{m.group(0)}?v={_bam_noi_dung(p)}" if p.is_file() else m.group(0)
+        return f"{m.group(0)}?v={_content_hash(p)}" if p.is_file() else m.group(0)
 
-    return _DUONG_DAN_TAI_NGUYEN.sub(thay, html)
+    return _ASSET_PATH_RE.sub(replace_one, html)
 
 
-def _nap_trang() -> None:
-    for ten in ("index.html", "about.html"):
-        _TRANG[ten] = _gan_phien_ban((STATIC_DIR / ten).read_text("utf-8"))
+def _load_pages() -> None:
+    for filename in ("index.html", "about.html"):
+        _PAGES[filename] = _add_asset_versions((STATIC_DIR / filename).read_text("utf-8"))
 
 
 class TTSRequest(BaseModel):
@@ -72,18 +72,18 @@ class TTSRequest(BaseModel):
     text: str
 
 
-def _loi(status: int, detail: str, headers: dict[str, str] | None = None) -> JSONResponse:
+def _error(status: int, detail: str, headers: dict[str, str] | None = None) -> JSONResponse:
     return JSONResponse({"detail": detail}, status_code=status, headers=headers)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.cache_dir.mkdir(parents=True, exist_ok=True)
-    so_file = cache.cleanup_tmp(settings.cache_dir)
-    if so_file:
-        log.info("Dọn %d file tạm mồ côi lúc khởi động", so_file)
+    removed_count = cache.cleanup_tmp(settings.cache_dir)
+    if removed_count:
+        log.info("Dọn %d file tạm mồ côi lúc khởi động", removed_count)
     cache.enforce_limit(settings.cache_dir, settings.cache_max_mb)
-    _nap_trang()
+    _load_pages()
     yield
 
 
@@ -92,7 +92,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.middleware("http")
-async def header_cache_tai_nguyen(request: Request, call_next):
+async def static_cache_header(request: Request, call_next):
     """Buộc cache kiểm tra lại tài nguyên tĩnh.
 
     Lớp bảo vệ thứ hai sau việc gắn ?v= — phòng khi có tài nguyên nào được
@@ -104,6 +104,23 @@ async def header_cache_tai_nguyen(request: Request, call_next):
     return response
 
 
+@app.get("/api/status")
+async def status() -> dict:
+    """Cờ chẩn đoán: gTTS đang chạy, đang bị chặn, hay hết ngân sách.
+
+    Tách khỏi /healthz vì healthz phải luôn trả 200 cho Docker — nhà cung cấp
+    TTS chập chờn không có nghĩa là tiến trình chết.
+    """
+    files = list(settings.cache_dir.glob("*.mp3"))
+    return {
+        "gtts": synthesizer.guard.status(),
+        "cache": {
+            "files": len(files),
+            "bytes": sum(p.stat().st_size for p in files),
+        },
+    }
+
+
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
     # Không gọi ra mạng ngoài: healthcheck chỉ để biết tiến trình còn sống,
@@ -112,45 +129,45 @@ async def healthz() -> dict[str, str]:
 
 
 @app.get("/")
-async def trang_chu() -> HTMLResponse:
-    return HTMLResponse(_TRANG["index.html"])
+async def index_page() -> HTMLResponse:
+    return HTMLResponse(_PAGES["index.html"])
 
 
 @app.get("/about")
 @app.get("/about/")
-async def trang_gioi_thieu() -> HTMLResponse:
-    return HTMLResponse(_TRANG["about.html"])
+async def about_page() -> HTMLResponse:
+    return HTMLResponse(_PAGES["about.html"])
 
 
 @app.post("/api/tts")
 @app.post("/text-to-speech")
 async def text_to_speech(payload: TTSRequest, request: Request):
-    cho_phep, cho_bao_lau = limiter.allow(client_ip(request))
-    if not cho_phep:
-        return _loi(
+    allowed, retry_after = limiter.allow(client_ip(request))
+    if not allowed:
+        return _error(
             429,
             "Bạn gửi quá nhanh, thử lại sau ít giây.",
-            headers={"Retry-After": str(max(1, int(cho_bao_lau) + 1))},
+            headers={"Retry-After": str(max(1, int(retry_after) + 1))},
         )
 
     raw = payload.text
     if not raw.strip():
-        return _loi(422, "Trường 'text' không được rỗng.")
-    # Kiểm tra thủ công thay vì dùng max_length của pydantic, để trả đúng 413
-    # thay vì 422 lẫn với lỗi schema.
+        return _error(422, "Trường 'text' không được rỗng.")
+    # Kiểm tra thủ công replace_one vì dùng max_length của pydantic, để trả đúng 413
+    # replace_one vì 422 lẫn với lỗi schema.
     if len(raw) > settings.max_text_length:
-        return _loi(413, f"Văn bản quá dài, tối đa {settings.max_text_length} ký tự.")
+        return _error(413, f"Văn bản quá dài, tối đa {settings.max_text_length} ký tự.")
 
     final_text = normalize(raw)
     # Không chỉ kiểm tra rỗng: chuỗi toàn dấu câu như " - " chuẩn hoá thành "-."
     # vẫn khác rỗng, mà gọi TTS để đọc một dấu gạch thì chỉ tổ phí.
-    if not _CO_CHU_HOAC_SO.search(final_text):
-        return _loi(422, "Văn bản không có nội dung nào để đọc.")
+    if not _HAS_LETTER_OR_DIGIT.search(final_text):
+        return _error(422, "Văn bản không có nội dung nào để đọc.")
 
     try:
         key, data = await synthesizer.get_audio(final_text)
     except TTSError as exc:
         log.error("Không sinh được audio: %s", exc)
-        return _loi(503, "Dịch vụ đọc đang không phản hồi, thử lại sau ít phút.")
+        return _error(503, "Dịch vụ đọc đang không phản hồi, thử lại sau ít phút.")
 
     return {"text": final_text, "base64": base64.b64encode(data).decode(), "name": key}

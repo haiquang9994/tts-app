@@ -3,7 +3,7 @@
 const PREFETCH_SIZE = 3;
 const TICK_MS = 500;
 // Đoạn dài hơn ngần này từ thì nút "Xuống dòng" mới cắt.
-const MAX_WORDS_PER_LINE = 30;
+const MAX_WORDS_PER_LINE = 50;
 
 const STORAGE = {
   queue: '__queue_texts__',
