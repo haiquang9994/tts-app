@@ -6,3 +6,4 @@ __pycache__/
 .env
 mp3/*
 !mp3/.gitkeep
+.playwright-mcp/

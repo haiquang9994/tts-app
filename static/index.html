@@ -1,1 +1,60 @@
-<!doctype html><title>Tự động đọc</title>
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tự động đọc</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128266;</text></svg>">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+  <h1>Tự động đọc</h1>
+
+  <section class="panel">
+    <p class="hint">Chọn file .txt chứa nội dung tiếng Việt muốn nghe, hoặc dán văn bản vào ô bên dưới.</p>
+    <input type="file" id="text_file" accept=".txt,text/plain" multiple>
+
+    <div class="controls">
+      <label>Giọng <select id="voice"></select></label>
+      <label>Tốc độ <select id="rate"></select></label>
+    </div>
+    <p class="hint">
+      Đổi giọng hoặc tốc độ chỉ áp dụng cho các câu sinh mới. Muốn áp dụng ngay cho cả hàng đợi
+      thì bấm nút xoá rồi nhập lại.
+    </p>
+
+    <textarea id="text_textarea" rows="6"></textarea>
+    <div class="row">
+      <button class="btn" id="text_textarea_btn" disabled>
+        <img src="/static/img/check.png" alt="Thêm vào hàng đợi">
+      </button>
+      <button class="btn" id="remove_all">
+        <img src="/static/img/remove.png" alt="Xoá tất cả">
+      </button>
+    </div>
+  </section>
+
+  <div class="row">
+    <button class="btn play" id="playPause">
+      <img class="play-img" src="/static/img/play.png" alt="Phát">
+      <img class="pause-img" src="/static/img/pause.png" alt="Tạm dừng">
+    </button>
+    <button class="btn" id="next">
+      <img src="/static/img/end.png" alt="Câu tiếp theo">
+    </button>
+  </div>
+
+  <p id="status" class="status" role="status"></p>
+
+  <h3>Ready to read</h3>
+  <div id="output"></div>
+
+  <h3>Queues</h3>
+  <div id="queue"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+
+</html>

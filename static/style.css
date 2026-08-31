@@ -1,0 +1,61 @@
+*, ::after, ::before { box-sizing: border-box; }
+
+body {
+  font-family: monospace;
+  line-height: 1.5;
+  margin: 0 auto;
+  padding: 10px;
+  max-width: 720px;
+}
+
+h1 { text-align: center; margin: 10px 0; font-size: 1.6rem; }
+h3 { margin: 16px 0 6px; }
+h1, h3, .panel, .row, .hint { user-select: none; -webkit-user-select: none; }
+
+.hint { margin: 5px 0; font-size: 12px; color: #666; }
+
+.controls { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0; }
+.controls label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.controls select { font-family: inherit; font-size: 13px; padding: 4px; border-radius: 6px; }
+
+textarea {
+  width: 100%;
+  max-width: 100%;
+  padding: 5px;
+  outline: none;
+  margin-bottom: 5px;
+  border-radius: 10px;
+  font-family: inherit;
+}
+
+.row { display: flex; gap: 10px; padding: 10px 0; }
+
+.btn {
+  flex: 1;
+  line-height: 32px;
+  border-radius: 10px;
+  border: 0;
+  background-color: beige;
+  color: brown;
+  font-size: 22px;
+  opacity: 1;
+  transition: background-color, opacity 300ms;
+  padding: 5px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.btn:active { background-color: antiquewhite; opacity: 0.5; }
+.btn:disabled { opacity: 0.4; }
+.btn img { height: 32px; }
+
+.btn.play img.play-img { display: block; }
+.btn.play img.pause-img { display: none; }
+.btn.pause img.pause-img { display: block; }
+.btn.pause img.play-img { display: none; }
+
+.status { min-height: 1.5em; margin: 4px 0; color: #b34; font-size: 13px; }
+
+#output { text-align: justify; color: #41934c; }
+#queue { text-align: justify; }
+#output p.dang-tai { color: #cacaca; }
