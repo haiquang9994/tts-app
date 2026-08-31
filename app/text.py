@@ -3,16 +3,16 @@
 Mục tiêu duy nhất: cắt văn bản thành từng câu để TTS ngắt nghỉ đúng chỗ.
 Kết quả của hàm này KHÔNG hiển thị cho người dùng — giao diện luôn giữ text gốc.
 
-Khác có chủ ý so với bản Django gốc: bản cũ thêm khoảng trắng sau MỌI dấu chấm
-và coi MỌI dấu gạch ngang là hết câu, nên nó phá đường dẫn file, URL, số phiên
-bản và số tiền:
+Hai quy tắc, và cả hai đều hẹp có chủ đích:
 
-    .claude/features/client-surface.md -> claude/features/client. surface. md
-    Phiên bản 3.12.4                   -> Phiên bản 3. 12. 4
-    Giá 1.500.000 đồng                 -> Giá 1. 500. 000 đồng
+* Dấu chấm chỉ kết câu khi theo sau là khoảng trắng hoặc hết chuỗi.
+* Dấu gạch ngang chỉ ngắt câu khi đứng riêng giữa hai khoảng trắng.
 
-Quy tắc mới: dấu chấm chỉ kết câu khi theo sau là khoảng trắng hoặc hết chuỗi;
-dấu gạch ngang chỉ ngắt câu khi đứng riêng giữa hai khoảng trắng.
+Nới rộng bất kỳ quy tắc nào cũng phá đường dẫn file, URL, số phiên bản và số
+tiền — chẳng hạn thêm khoảng trắng sau mọi dấu chấm sẽ biến
+".claude/features/client-surface.md" thành "claude/features/client. surface. md"
+và "3.12.4" thành "3. 12. 4". Golden test trong tests/test_text.py khoá cả hai
+hướng: câu bình thường phải tách đúng, còn những chuỗi trên phải nguyên vẹn.
 """
 from __future__ import annotations
 

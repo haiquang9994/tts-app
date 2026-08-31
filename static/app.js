@@ -168,8 +168,8 @@ const RunAudio = function (params) {
         this.set_status(err.message);
       })
       .finally(() => {
-        // Bản cũ quên đặt lại cờ này ở nhánh lỗi, nên một lần hỏng là hàng
-        // đợi kẹt cứng vĩnh viễn.
+        // Phải đặt lại cờ này ở CẢ nhánh lỗi. Bỏ sót nhánh đó thì một lần
+        // hỏng là hàng đợi kẹt cứng vĩnh viễn.
         this.loading = false;
         this.loading_text = null;
         this.render_base64_items();

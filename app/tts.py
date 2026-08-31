@@ -2,10 +2,10 @@
 
 Chuỗi nhà cung cấp:
 
-  1. gTTS (Google) — mặc định. Tăng tốc bằng hiệu ứng `tempo` của sox nên giữ
-     nguyên cao độ, không chói như hack đổi frame_rate của bản Django cũ. Dùng
-     sox chứ không dùng ffmpeg vì cùng thuật toán WSOLA mà chỉ thêm ~12MB vào
-     image, trong khi ffmpeg thêm tới ~450MB.
+  1. gTTS (Google) — mặc định. Tăng tốc bằng hiệu ứng `tempo` của sox: thuật
+     toán WSOLA giữ nguyên cao độ, khác với cách đổi sample rate vốn nhanh hơn
+     nhưng làm giọng lên cao nghe chói. Dùng sox chứ không dùng ffmpeg vì cùng
+     thuật toán mà chỉ thêm ~12MB vào image, trong khi ffmpeg thêm tới ~450MB.
   2. edge-tts (Microsoft) — dùng khi gTTS hỏng hoặc khi cầu dao đang mở. Luôn
      giọng HoaiMy và KHÔNG đổi tốc độ.
 

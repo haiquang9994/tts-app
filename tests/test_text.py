@@ -2,7 +2,7 @@ import pytest
 
 from app.text import normalize, speak_paths
 
-# Câu bình thường vẫn phải tách đúng như bản Django gốc.
+# Câu bình thường phải tách đúng ở dấu chấm.
 ORDINARY_SENTENCES = [
     ("Xin chào. Tôi tên là Nam.", "Xin chào. Tôi tên là Nam."),
     ("Câu một. Câu hai. Câu ba.", "Câu một. Câu hai. Câu ba."),
@@ -15,7 +15,7 @@ ORDINARY_SENTENCES = [
     ("   ", ""),
 ]
 
-# Những trường hợp bản Django gốc PHÁ HỎNG. Đây là lý do tồn tại của bản viết lại.
+# Những chuỗi mà quy tắc tách câu nới rộng sẽ phá hỏng. Phải nguyên vẹn.
 MUST_NOT_MANGLE = [
     (".claude/features/client-surface.md", ".claude/features/client-surface.md."),
     ("Xem file config.py nhé.", "Xem file config.py nhé."),

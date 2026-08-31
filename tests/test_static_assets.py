@@ -1,7 +1,7 @@
 """Bảo vệ khỏi lỗi đã làm hỏng ảnh trên production.
 
-File ảnh chép từ project Django cũ mang mode 640. COPY của Docker giữ nguyên
-mode đó, nên container chạy non-root không đọc được: StaticFiles gửi 200 kèm
+COPY của Docker giữ nguyên mode của file nguồn. Một file lỡ mang mode 640 sẽ
+khiến container chạy non-root không đọc được: StaticFiles gửi 200 kèm
 Content-Length rồi đóng kết nối không có thân phản hồi, và Cloudflare trả 520.
 
 Test đơn vị thường không bắt được vì nó chạy bằng chính user sở hữu file.
