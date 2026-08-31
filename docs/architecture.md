@@ -18,7 +18,7 @@ POST /api/tts {"text": "..."}
        ├─ single-flight: request trùng nội dung chờ chung một kết quả
        │
        ├─ ProviderGuard.allow()?
-       │    ├─ CÓ  → gTTS (speak_paths → gTTS → sox tempo) → ghi cache khoá gTTS
+       │    ├─ CÓ  → gTTS (speak_paths → gTTS → sox tăng tốc) → ghi cache khoá gTTS
        │    └─ KHÔNG → bỏ qua Google hoàn toàn
        │
        └─ dự phòng: tra cache khoá edge → edge-tts → ghi cache khoá edge
@@ -29,13 +29,25 @@ chỉ biết tới nhà cung cấp, `text.py` là hàm thuần, `main.py` ghép 
 
 ## Chuỗi nhà cung cấp TTS
 
-1. **gTTS** (Google) — mặc định. Tăng tốc `+20%` bằng hiệu ứng `tempo` của sox, giữ nguyên cao độ.
+1. **gTTS** (Google) — mặc định. Tăng tốc `+20%` bằng sox.
 2. **edge-tts** (Microsoft, giọng HoaiMy) — dùng khi gTTS hỏng hoặc cầu dao đang mở, không đổi
    tốc độ.
 
 Cả hai chạy hoàn toàn phía server: đó là thư viện Python gọi thẳng ra endpoint của nhà cung cấp,
 không cần trình duyệt hay Chromium nào trong container. Người dùng **không** chọn được giọng hay
 tốc độ — giao diện không có tuỳ chọn đó.
+
+Có hai cách tăng tốc, chọn bằng `TTS_SPEED_MODE`:
+
+| Chế độ | Hiệu ứng sox | Nghe ra sao |
+|---|---|---|
+| `tempo` (mặc định) | `tempo 1.2` | WSOLA giãn thời gian, cao độ giữ nguyên |
+| `resample` | `speed 1.2` | Đổi sample rate: nhanh hơn thì giọng cũng cao lên đúng 1.2 lần |
+
+Về mặt kỹ thuật `resample` làm méo giọng, nhưng có người thích đúng chất giọng đó, nên đây là
+một lựa chọn chứ không phải lỗi cần sửa. Hai chế độ có khoá cache khác nhau (`speed_cache_key` trong `tts.py`),
+nên đổi biến môi trường là sinh audio mới chứ không phát lại bản cũ; riêng chế độ mặc định giữ
+nguyên khoá như hồi chưa có biến này, để cache đã có vẫn dùng được.
 
 `sox` được gọi với `-C 64` để ép bitrate. Bỏ tham số này thì sox (và cả ffmpeg) mã hoá lại ở
 32kbps mặc định, tức là bước tăng tốc âm thầm làm giảm một nửa chất lượng audio của gTTS.

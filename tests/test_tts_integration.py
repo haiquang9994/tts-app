@@ -4,6 +4,7 @@ Test mock không bao giờ phát hiện được kiểu hỏng đáng lo nhất:
 Microsoft đổi giao thức hay chặn server. Nên chạy bộ này trước mỗi lần deploy.
 """
 import shutil
+import subprocess
 
 import pytest
 
@@ -47,3 +48,28 @@ async def test_speedup_preserves_bitrate():
 async def test_edge_tts_fallback_still_works():
     data = await edge_provider("Xin chào.", voice="vi-VN-HoaiMyNeural")
     assert is_mp3(data)
+
+
+def rough_frequency(data: bytes) -> int:
+    """Ước lượng cao độ bằng `sox stat` — đủ để phân biệt hai chế độ tăng tốc."""
+    proc = subprocess.run(
+        ["sox", "-t", "mp3", "-", "-n", "stat"],
+        input=data, capture_output=True, check=True,
+    )
+    for line in proc.stderr.decode().splitlines():
+        if "frequency" in line.lower():
+            return int(line.split(":")[1])
+    raise AssertionError("sox stat không in ra tần số")
+
+
+@pytest.mark.skipif(shutil.which("sox") is None, reason="máy này chưa cài sox")
+async def test_resample_mode_raises_the_pitch():
+    cau = "Xin chào, đây là một câu dài để đo cao độ."
+    tempo = await gtts_provider(cau, rate="+50%", mode="tempo")
+    resample = await gtts_provider(cau, rate="+50%", mode="resample")
+
+    assert is_mp3(resample)
+    # Cùng độ dài (cùng tốc độ, cùng bitrate) nhưng cao độ lên đúng tỉ lệ 1.5.
+    assert abs(len(resample) - len(tempo)) / len(tempo) < 0.1
+    ty_le = rough_frequency(resample) / rough_frequency(tempo)
+    assert 1.3 < ty_le < 1.7, f"tỉ lệ cao độ {ty_le:.2f} — resample không đổi cao độ"

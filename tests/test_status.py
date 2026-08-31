@@ -100,3 +100,11 @@ def test_status_never_leaks_the_api_key(tmp_path, monkeypatch):
         res = client.get("/api/status")
 
     assert secret not in res.text
+
+
+def test_reports_the_speed_mode_in_use(api):
+    # Deploy xong nhìn được ngay đang chạy chất giọng nào, khỏi phải nghe thử.
+    client, _ = api
+    body = client.get("/api/status").json()
+
+    assert body["audio"] == {"rate": "+20%", "speed_mode": "tempo"}

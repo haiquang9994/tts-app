@@ -16,6 +16,7 @@ bắt đầu bằng `AIza`. Token dạng `AQ.…` là credential tạm thời, h
 |---|---|---|
 | `APP_PORT` | `8010` | Cổng trên host mà compose map ra (chỉ compose dùng) |
 | `TTS_RATE` | `+20%` | Tốc độ đọc của gTTS, **phải có dấu** (`+0%` chứ không phải `0%`) |
+| `TTS_SPEED_MODE` | `tempo` | `tempo` giữ nguyên cao độ; `resample` cho giọng cao lên theo tốc độ. Tên lạ thì quay về `tempo` |
 | `TTS_FALLBACK_VOICE` | `vi-VN-HoaiMyNeural` | Giọng edge-tts khi gTTS hỏng. Giọng nam là `vi-VN-NamMinhNeural` |
 | `TTS_MAX_CONCURRENCY` | `4` | Số lời gọi TTS ra ngoài đồng thời tối đa |
 | `TTS_TIMEOUT_SECONDS` | `30` | Timeout cho một lời gọi TTS |

@@ -59,7 +59,10 @@ single-flight, then calls a provider.
 
 Provider chain, guarded by `ProviderGuard` (`app/breaker.py`):
 
-1. **gTTS** (Google) — default. Sped up `+20%` through `sox tempo`, pitch preserved.
+1. **gTTS** (Google) — default. Sped up `+20%` through sox. `TTS_SPEED_MODE` picks the
+   effect: `tempo` (default, pitch preserved) or `resample` (sox `speed` — pitch rises with
+   the tempo; deliberate, some listeners prefer it). Each mode has its own cache key, and the
+   default mode keeps the pre-`TTS_SPEED_MODE` key so existing cache stays valid.
 2. **edge-tts** (Microsoft, HoaiMy voice) — used when gTTS fails or the breaker is open.
 
 The breaker exists to stop calling Google *before* Google blocks us: a per-minute token budget

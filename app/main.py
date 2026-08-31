@@ -121,6 +121,8 @@ async def status() -> dict:
     translations = list(settings.cache_dir.glob("*.txt"))
     return {
         "gtts": synthesizer.guard.status(),
+        # Đủ để biết container đang chạy chất giọng nào mà không phải nghe thử.
+        "audio": {"rate": settings.tts_rate, "speed_mode": settings.tts_speed_mode},
         "translate": {
             # Không bao giờ trả về chính API key, chỉ trả về việc đã cấu hình
             # hay chưa.

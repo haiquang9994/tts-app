@@ -7,7 +7,14 @@ from edge_tts.exceptions import NoAudioReceived
 from app import cache, tts
 from app.breaker import CLOSED, OPEN, ProviderGuard
 from app.config import Settings
-from app.tts import EDGE_VARIANT, GTTS_VARIANT, Synthesizer, TTSError, tempo_from_rate
+from app.tts import (
+    EDGE_VARIANT,
+    GTTS_VARIANT,
+    Synthesizer,
+    TTSError,
+    speed_cache_key,
+    tempo_from_rate,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -57,6 +64,52 @@ class BlockedError(Exception):
 ])
 def test_converts_rate_to_tempo(rate, expected):
     assert tempo_from_rate(rate) == pytest.approx(expected)
+
+
+def sox_args(monkeypatch, mode: str) -> list[str]:
+    """Chạy bước tăng tốc với subprocess giả, trả về dòng lệnh sox đã dựng."""
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        return type("P", (), {"returncode": 0, "stdout": b"MP3", "stderr": b""})()
+
+    monkeypatch.setattr(tts.subprocess, "run", fake_run)
+    tts._change_speed(b"MP3", "+20%", mode)
+    return seen["cmd"]
+
+
+def test_default_mode_uses_the_pitch_preserving_effect(monkeypatch):
+    assert "tempo" in sox_args(monkeypatch, "tempo")
+
+
+def test_resample_mode_uses_the_effect_that_raises_the_pitch(monkeypatch):
+    """`speed` của sox đổi sample rate, nên cao độ lên theo tốc độ."""
+    cmd = sox_args(monkeypatch, "resample")
+    assert "speed" in cmd and "tempo" not in cmd
+
+
+def test_default_mode_keeps_the_old_cache_key():
+    # Cache sinh trước khi có TTS_SPEED_MODE phải dùng lại được.
+    assert speed_cache_key("+20%", "tempo") == "+20%"
+
+
+def test_each_speed_mode_gets_its_own_cache_key():
+    assert speed_cache_key("+20%", "resample") != speed_cache_key("+20%", "tempo")
+
+
+async def test_resample_audio_never_shadows_the_default_mode(tmp_path: Path):
+    """Đổi chế độ là ra file khác, nên hai chế độ không dùng nhầm cache của nhau."""
+    s = make(tmp_path, primary=works([], b"RESAMPLE"), fallback=fails(),
+             tts_speed_mode="resample")
+    await s.get_audio("xin chào")
+
+    mac_dinh = cache.cache_key("xin chào", GTTS_VARIANT, "+20%")
+    assert cache.read(tmp_path, mac_dinh) is None
+
+    s2 = make(tmp_path, primary=works([], b"TEMPO"), fallback=fails())
+    _, data = await s2.get_audio("xin chào")
+    assert data == b"TEMPO"
 
 
 async def test_uses_gtts_and_caches_result(tmp_path: Path):

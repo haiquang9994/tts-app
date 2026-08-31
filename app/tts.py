@@ -2,10 +2,11 @@
 
 Chuỗi nhà cung cấp:
 
-  1. gTTS (Google) — mặc định. Tăng tốc bằng hiệu ứng `tempo` của sox: thuật
-     toán WSOLA giữ nguyên cao độ, khác với cách đổi sample rate vốn nhanh hơn
-     nhưng làm giọng lên cao nghe chói. Dùng sox chứ không dùng ffmpeg vì cùng
-     thuật toán mà chỉ thêm ~12MB vào image, trong khi ffmpeg thêm tới ~450MB.
+  1. gTTS (Google) — mặc định. Tăng tốc bằng sox, hai cách chọn qua
+     TTS_SPEED_MODE: `tempo` (WSOLA, giữ nguyên cao độ) hoặc `resample` (đổi
+     sample rate, giọng cao lên theo tốc độ). Dùng sox chứ không dùng ffmpeg vì
+     cùng thuật toán mà chỉ thêm ~12MB vào image, trong khi ffmpeg thêm tới
+     ~450MB.
   2. edge-tts (Microsoft) — dùng khi gTTS hỏng hoặc khi cầu dao đang mở. Luôn
      giọng HoaiMy và KHÔNG đổi tốc độ.
 
@@ -30,7 +31,7 @@ from gtts import gTTS
 
 from . import cache
 from .breaker import ProviderGuard
-from .config import Settings
+from .config import DEFAULT_SPEED_MODE, Settings
 from .text import speak_paths
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,11 @@ EDGE_VARIANT = "edge-vi"
 # gTTS trả MP3 64kbps. Không ép bitrate thì cả sox lẫn ffmpeg đều mã hoá lại ở
 # 32kbps mặc định, tức là bước tăng tốc âm thầm làm giảm một nửa chất lượng.
 _MP3_BITRATE_KBPS = 64
+
+# Chế độ tăng tốc -> hiệu ứng sox. `tempo` giãn thời gian nên cao độ không
+# đổi; `speed` chỉ đọc mẫu ở nhịp khác rồi lấy mẫu lại, nên vừa nhanh hơn vừa
+# cao hơn đúng bấy nhiêu lần.
+_SOX_EFFECT = {"tempo": "tempo", "resample": "speed"}
 
 # Mã HTTP cho thấy Google đã chặn chứ không phải trục trặc thoáng qua.
 _BLOCKED_STATUS = (403, 429)
@@ -73,14 +79,26 @@ def tempo_from_rate(rate: str) -> float:
     return 1.0 + int(rate.rstrip("%")) / 100.0
 
 
-def _change_tempo(data: bytes, rate: str) -> bytes:
+def speed_cache_key(rate: str, mode: str) -> str:
+    """Phần khoá cache cho bước tăng tốc.
+
+    Chế độ mặc định trả về đúng chuỗi rate như hồi chưa có TTS_SPEED_MODE, nên
+    cache cũ vẫn dùng lại được; chỉ chế độ mới mới sinh khoá mới. Hai chế độ
+    không bao giờ dùng chung file, vì cùng tốc độ mà khác hẳn cao độ.
+    """
+    if mode == DEFAULT_SPEED_MODE:
+        return rate
+    return f"{rate}|{mode}"
+
+
+def _change_speed(data: bytes, rate: str, mode: str = DEFAULT_SPEED_MODE) -> bytes:
     tempo = tempo_from_rate(rate)
     if abs(tempo - 1.0) < 1e-9:
         return data
     proc = subprocess.run(
         ["sox", "-t", "mp3", "-",
          "-C", str(_MP3_BITRATE_KBPS), "-t", "mp3", "-",
-         "tempo", f"{tempo:g}"],
+         _SOX_EFFECT[mode], f"{tempo:g}"],
         input=data,
         capture_output=True,
         check=False,
@@ -97,14 +115,14 @@ def _gtts_bytes(text: str) -> bytes:
     return buffer.getvalue()
 
 
-async def gtts_provider(text: str, *, rate: str) -> bytes:
+async def gtts_provider(text: str, *, rate: str, mode: str = DEFAULT_SPEED_MODE) -> bytes:
     """gTTS là thư viện đồng bộ nên phải đẩy sang thread để không chặn vòng lặp."""
     # Chỉ gTTS mới cần bước này: nó đánh vần từng chữ cái khi gặp dấu chấm đứng
     # trước chữ. edge-tts đọc đường dẫn vốn đã ổn.
     data = await asyncio.to_thread(_gtts_bytes, speak_paths(text))
     if not data:
         raise TTSError("gTTS trả về dữ liệu rỗng")
-    return await asyncio.to_thread(_change_tempo, data, rate)
+    return await asyncio.to_thread(_change_speed, data, rate, mode)
 
 
 async def edge_provider(text: str, *, voice: str, rate: str = "+0%") -> bytes:
@@ -132,7 +150,9 @@ class Synthesizer:
         guard: ProviderGuard | None = None,
     ) -> None:
         self._settings = settings
-        self._primary = primary or functools.partial(gtts_provider, rate=settings.tts_rate)
+        self._primary = primary or functools.partial(
+            gtts_provider, rate=settings.tts_rate, mode=settings.tts_speed_mode
+        )
         self._fallback = fallback or functools.partial(
             edge_provider, voice=settings.tts_fallback_voice, rate="+0%"
         )
@@ -151,7 +171,11 @@ class Synthesizer:
         return self._guard
 
     async def get_audio(self, final_text: str) -> tuple[str, bytes]:
-        key = cache.cache_key(final_text, GTTS_VARIANT, self._settings.tts_rate)
+        key = cache.cache_key(
+            final_text,
+            GTTS_VARIANT,
+            speed_cache_key(self._settings.tts_rate, self._settings.tts_speed_mode),
+        )
 
         data = cache.read(self._settings.cache_dir, key)
         if data is not None:

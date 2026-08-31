@@ -14,13 +14,23 @@ VOICES: dict[str, str] = {
 }
 DEFAULT_VOICE = "vi-VN-HoaiMyNeural"
 
+# Cách tăng tốc audio gTTS, chọn bằng TTS_SPEED_MODE:
+#   tempo    — WSOLA, đọc nhanh hơn nhưng giữ nguyên cao độ.
+#   resample — đổi sample rate: nhanh hơn thì giọng cũng cao lên đúng tỉ lệ,
+#              nghe "chói" hơn. Về mặt kỹ thuật là méo giọng, nhưng có người
+#              thích đúng chất giọng đó nên nó là một lựa chọn, không phải lỗi.
+SPEED_MODES: tuple[str, ...] = ("tempo", "resample")
+DEFAULT_SPEED_MODE = "tempo"
+
 
 @dataclass(frozen=True)
 class Settings:
     # Giọng edge-tts dùng khi gTTS hỏng. Bản dự phòng KHÔNG đổi tốc độ.
     tts_fallback_voice: str = DEFAULT_VOICE
-    # Tốc độ áp cho gTTS qua bộ lọc atempo của ffmpeg (giữ nguyên cao độ).
+    # Tốc độ áp cho gTTS qua sox.
     tts_rate: str = "+20%"
+    # Cao độ có đổi theo tốc độ hay không — xem SPEED_MODES ở trên.
+    tts_speed_mode: str = DEFAULT_SPEED_MODE
     tts_max_concurrency: int = 4
     tts_timeout_seconds: int = 30
     max_text_length: int = 1000
@@ -59,9 +69,13 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     voice = env.get("TTS_FALLBACK_VOICE", DEFAULT_VOICE)
     if voice not in VOICES:
         voice = DEFAULT_VOICE
+    speed_mode = env.get("TTS_SPEED_MODE", DEFAULT_SPEED_MODE)
+    if speed_mode not in SPEED_MODES:
+        speed_mode = DEFAULT_SPEED_MODE
     return Settings(
         tts_fallback_voice=voice,
         tts_rate=env.get("TTS_RATE", "+20%"),
+        tts_speed_mode=speed_mode,
         tts_max_concurrency=_int(env, "TTS_MAX_CONCURRENCY", 4),
         tts_timeout_seconds=_int(env, "TTS_TIMEOUT_SECONDS", 30),
         max_text_length=_int(env, "MAX_TEXT_LENGTH", 1000),
