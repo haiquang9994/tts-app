@@ -15,12 +15,12 @@ def moi_truong(tmp_path, monkeypatch):
     settings = Settings(cache_dir=tmp_path)
     calls = []
 
-    async def provider(text, voice, rate):
-        calls.append((text, voice, rate))
+    async def provider(text):
+        calls.append(text)
         return b"FAKE-MP3"
 
     monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(main, "synthesizer", Synthesizer(settings, provider=provider))
+    monkeypatch.setattr(main, "synthesizer", Synthesizer(settings, primary=provider))
     monkeypatch.setattr(main, "limiter", RateLimiter(settings.rate_limit_per_minute))
     with TestClient(main.app) as client:
         yield client, calls
@@ -45,19 +45,28 @@ def test_duong_dan_cu_text_to_speech_van_chay(moi_truong):
     assert res.json()["text"] == "Xin chào."
 
 
-def test_gui_giong_va_toc_do_thi_chuyen_xuong_provider(moi_truong):
+def test_provider_nhan_dung_van_ban_da_chuan_hoa(moi_truong):
     client, calls = moi_truong
-    client.post(
+    client.post("/api/tts", json={"text": "Xin chào.  Tôi tên Nam."})
+    assert calls == ["Xin chào. Tôi tên Nam."]
+
+
+def test_bo_qua_truong_thua_voice_va_rate(moi_truong):
+    # API không còn nhận hai trường này; gửi lên cũng không được phép làm hỏng.
+    client, calls = moi_truong
+    res = client.post(
         "/api/tts",
-        json={"text": "Xin chào.", "voice": "vi-VN-NamMinhNeural", "rate": "+50%"},
+        json={"text": "Xin chào.", "voice": "en-US-JennyNeural", "rate": "+999%"},
     )
-    assert calls == [("Xin chào.", "vi-VN-NamMinhNeural", "+50%")]
+    assert res.status_code == 200
+    assert calls == ["Xin chào."]
 
 
-def test_khong_gui_giong_thi_dung_mac_dinh(moi_truong):
+def test_khong_pha_duong_dan_file(moi_truong):
     client, calls = moi_truong
-    client.post("/api/tts", json={"text": "Xin chào."})
-    assert calls == [("Xin chào.", "vi-VN-HoaiMyNeural", "+20%")]
+    res = client.post("/api/tts", json={"text": ".claude/features/client-surface.md"})
+    assert res.status_code == 200
+    assert calls == [".claude/features/client-surface.md."]
 
 
 def test_lan_thu_hai_lay_tu_cache_khong_goi_provider(moi_truong):
@@ -84,41 +93,30 @@ def test_text_qua_dai_tra_413(moi_truong):
     assert res.status_code == 413
 
 
-def test_giong_ngoai_allowlist_tra_422(moi_truong):
-    client, _ = moi_truong
-    res = client.post("/api/tts", json={"text": "Xin chào.", "voice": "en-US-JennyNeural"})
+@pytest.mark.parametrize("text", [" - ", "...", "!!!", "--", "  .  "])
+def test_van_ban_toan_dau_cau_tra_422(moi_truong, text):
+    # Không có chữ hay số nào -> không đáng gọi TTS.
+    client, calls = moi_truong
+    res = client.post("/api/tts", json={"text": text})
     assert res.status_code == 422
+    assert calls == []
 
 
-@pytest.mark.parametrize("rate", ["0%", "20%", "+200%", "-60%", "nhanh", "+20"])
-def test_toc_do_khong_hop_le_tra_422(moi_truong, rate):
+def test_van_ban_chi_co_so_van_duoc_doc(moi_truong):
     client, _ = moi_truong
-    res = client.post("/api/tts", json={"text": "Xin chào.", "rate": rate})
-    assert res.status_code == 422
-
-
-@pytest.mark.parametrize("rate", ["+0%", "-50%", "+100%", "+20%"])
-def test_toc_do_hop_le_duoc_chap_nhan(moi_truong, rate):
-    client, _ = moi_truong
-    res = client.post("/api/tts", json={"text": "Xin chào.", "rate": rate})
-    assert res.status_code == 200
-
-
-def test_van_ban_chi_co_dau_cham_tra_422(moi_truong):
-    client, _ = moi_truong
-    # Sau khi chuẩn hoá không còn nội dung nào để đọc.
-    res = client.post("/api/tts", json={"text": " - "})
-    assert res.status_code == 422
+    assert client.post("/api/tts", json={"text": "2026"}).status_code == 200
 
 
 def test_tts_hong_tra_503_chu_khong_phai_500(tmp_path, monkeypatch):
     settings = Settings(cache_dir=tmp_path)
 
-    async def provider(text, voice, rate):
-        raise OSError("Microsoft chặn")
+    async def provider(text):
+        raise OSError("cả hai nhà cung cấp đều chặn")
 
     monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(main, "synthesizer", Synthesizer(settings, provider=provider))
+    monkeypatch.setattr(
+        main, "synthesizer", Synthesizer(settings, primary=provider, fallback=provider)
+    )
     monkeypatch.setattr(main, "limiter", RateLimiter(settings.rate_limit_per_minute))
     monkeypatch.setattr("app.tts._RETRY_DELAYS", (0.0,))
 
@@ -131,11 +129,11 @@ def test_tts_hong_tra_503_chu_khong_phai_500(tmp_path, monkeypatch):
 def test_vuot_rate_limit_tra_429_kem_retry_after(tmp_path, monkeypatch):
     settings = Settings(cache_dir=tmp_path)
 
-    async def provider(text, voice, rate):
+    async def provider(text):
         return b"FAKE-MP3"
 
     monkeypatch.setattr(main, "settings", settings)
-    monkeypatch.setattr(main, "synthesizer", Synthesizer(settings, provider=provider))
+    monkeypatch.setattr(main, "synthesizer", Synthesizer(settings, primary=provider))
     monkeypatch.setattr(main, "limiter", RateLimiter(per_minute=60, burst=2))
 
     with TestClient(main.app) as client:

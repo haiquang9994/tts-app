@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-# Allowlist cứng. Cho truyền giọng tuỳ ý nghĩa là biến server thành proxy TTS
-# đa ngôn ngữ cho người lạ dùng chùa.
+# Giọng edge-tts hợp lệ. Chỉ dùng để kiểm tra biến môi trường TTS_FALLBACK_VOICE
+# — người dùng không chọn được giọng, giao diện không có tuỳ chọn này.
 VOICES: dict[str, str] = {
     "vi-VN-HoaiMyNeural": "Nữ (HoaiMy)",
     "vi-VN-NamMinhNeural": "Nam (NamMinh)",
@@ -17,7 +17,9 @@ DEFAULT_VOICE = "vi-VN-HoaiMyNeural"
 
 @dataclass(frozen=True)
 class Settings:
-    tts_voice: str = DEFAULT_VOICE
+    # Giọng edge-tts dùng khi gTTS hỏng. Bản dự phòng KHÔNG đổi tốc độ.
+    tts_fallback_voice: str = DEFAULT_VOICE
+    # Tốc độ áp cho gTTS qua bộ lọc atempo của ffmpeg (giữ nguyên cao độ).
     tts_rate: str = "+20%"
     tts_max_concurrency: int = 4
     tts_timeout_seconds: int = 30
@@ -38,11 +40,11 @@ def _int(env: Mapping[str, str], name: str, default: int) -> int:
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     env = os.environ if env is None else env
-    voice = env.get("TTS_VOICE", DEFAULT_VOICE)
+    voice = env.get("TTS_FALLBACK_VOICE", DEFAULT_VOICE)
     if voice not in VOICES:
         voice = DEFAULT_VOICE
     return Settings(
-        tts_voice=voice,
+        tts_fallback_voice=voice,
         tts_rate=env.get("TTS_RATE", "+20%"),
         tts_max_concurrency=_int(env, "TTS_MAX_CONCURRENCY", 4),
         tts_timeout_seconds=_int(env, "TTS_TIMEOUT_SECONDS", 30),

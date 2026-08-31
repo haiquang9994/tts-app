@@ -5,7 +5,7 @@ from app.config import DEFAULT_VOICE, VOICES, load_settings
 
 def test_load_settings_dung_mac_dinh_khi_env_rong():
     s = load_settings({})
-    assert s.tts_voice == "vi-VN-HoaiMyNeural"
+    assert s.tts_fallback_voice == "vi-VN-HoaiMyNeural"
     assert s.tts_rate == "+20%"
     assert s.tts_max_concurrency == 4
     assert s.tts_timeout_seconds == 30

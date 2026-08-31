@@ -13,16 +13,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import cache
-from .config import VOICES, load_settings
+from .config import load_settings
 from .limits import RateLimiter, client_ip
 from .text import normalize
 from .tts import Synthesizer, TTSError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
-
-_RATE_RE = re.compile(r"^[+-]\d{1,3}%$")
-_RATE_MIN, _RATE_MAX = -50, 100
 
 settings = load_settings()
 logging.basicConfig(
@@ -35,20 +32,17 @@ synthesizer = Synthesizer(settings)
 limiter = RateLimiter(settings.rate_limit_per_minute)
 
 
+_CO_CHU_HOAC_SO = re.compile(r"[^\W_]", re.UNICODE)
+
+
 class TTSRequest(BaseModel):
+    # Không có `voice`/`rate`: giọng và tốc độ do server quyết định, giao diện
+    # không cho chọn.
     text: str
-    voice: str | None = None
-    rate: str | None = None
 
 
 def _loi(status: int, detail: str, headers: dict[str, str] | None = None) -> JSONResponse:
     return JSONResponse({"detail": detail}, status_code=status, headers=headers)
-
-
-def _toc_do_hop_le(rate: str) -> bool:
-    if not _RATE_RE.match(rate):
-        return False
-    return _RATE_MIN <= int(rate[:-1]) <= _RATE_MAX
 
 
 @asynccontextmanager
@@ -102,20 +96,14 @@ async def text_to_speech(payload: TTSRequest, request: Request):
     if len(raw) > settings.max_text_length:
         return _loi(413, f"Văn bản quá dài, tối đa {settings.max_text_length} ký tự.")
 
-    voice = payload.voice or settings.tts_voice
-    if voice not in VOICES:
-        return _loi(422, f"Giọng không hợp lệ. Chọn một trong: {', '.join(VOICES)}.")
-
-    rate = payload.rate or settings.tts_rate
-    if not _toc_do_hop_le(rate):
-        return _loi(422, "Tốc độ phải có dạng +20% hoặc -10%, trong khoảng -50% đến +100%.")
-
     final_text = normalize(raw)
-    if not final_text:
-        return _loi(422, "Văn bản không còn nội dung nào để đọc sau khi chuẩn hoá.")
+    # Không chỉ kiểm tra rỗng: chuỗi toàn dấu câu như " - " chuẩn hoá thành "-."
+    # vẫn khác rỗng, mà gọi TTS để đọc một dấu gạch thì chỉ tổ phí.
+    if not _CO_CHU_HOAC_SO.search(final_text):
+        return _loi(422, "Văn bản không có nội dung nào để đọc.")
 
     try:
-        key, data = await synthesizer.get_audio(final_text, voice, rate)
+        key, data = await synthesizer.get_audio(final_text)
     except TTSError as exc:
         log.error("Không sinh được audio: %s", exc)
         return _loi(503, "Dịch vụ đọc đang không phản hồi, thử lại sau ít phút.")

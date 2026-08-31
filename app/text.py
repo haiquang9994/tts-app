@@ -1,27 +1,33 @@
 """Chuẩn hoá văn bản trước khi đưa vào TTS.
 
-Chuỗi xử lý này bê nguyên từ bản Django gốc, kể cả những chi tiết trông lạ,
-vì nó quyết định app ngắt câu nghe có tự nhiên không. Đừng "sửa cho gọn"
-mà không cập nhật golden test trong tests/test_text.py.
+Mục tiêu duy nhất: cắt văn bản thành từng câu để TTS ngắt nghỉ đúng chỗ.
+Kết quả của hàm này KHÔNG hiển thị cho người dùng — giao diện luôn giữ text gốc.
+
+Khác có chủ ý so với bản Django gốc: bản cũ thêm khoảng trắng sau MỌI dấu chấm
+và coi MỌI dấu gạch ngang là hết câu, nên nó phá đường dẫn file, URL, số phiên
+bản và số tiền:
+
+    .claude/features/client-surface.md -> claude/features/client. surface. md
+    Phiên bản 3.12.4                   -> Phiên bản 3. 12. 4
+    Giá 1.500.000 đồng                 -> Giá 1. 500. 000 đồng
+
+Quy tắc mới: dấu chấm chỉ kết câu khi theo sau là khoảng trắng hoặc hết chuỗi;
+dấu gạch ngang chỉ ngắt câu khi đứng riêng giữa hai khoảng trắng.
 """
 from __future__ import annotations
 
 import re
 
-# Chú ý: regex có NHÓM BẮT `(\ )`, nên re.split chèn cả nhóm bắt vào kết quả,
-# và trả None ở những chỗ khớp nhánh `-`. Bộ lọc bên dưới phải xử lý None.
-_SPLIT = re.compile(r"\.(\ )|\-")
+_NGAT_CAU = re.compile(r"(?<=\.)\s+|\s+[-–—]\s+")
+_DAU_KET_CAU = (".", "!", "?", ":", ";", ",")
 
 
 def normalize(text: str) -> str:
-    text = re.sub(r"\.", ". ", text)
-    text = re.sub(r"\.\ \ ", ". ", text)
-    text = re.sub(r"\.\ +\"", '. "', text)
-    text = re.sub(r"\ \, ", ", ", text)
-    audio_text = re.sub(r"\"", "", text)
-    rows = [
-        r
-        for r in _SPLIT.split(audio_text.strip())
-        if r is not None and r.strip() != ""
-    ]
-    return ". ".join(rows).strip()
+    text = text.replace('"', "")
+    text = re.sub(r"\s+", " ", text).strip()
+    # Bỏ khoảng trắng thừa trước dấu câu: "Giá 5 , 5" -> "Giá 5, 5"
+    text = re.sub(r"\s+([,;:])", r"\1", text)
+
+    phan = [p.strip() for p in _NGAT_CAU.split(text) if p and p.strip()]
+    # Mỗi mảnh kết thúc bằng dấu câu để TTS ngắt nghỉ giữa các mảnh.
+    return " ".join(p if p.endswith(_DAU_KET_CAU) else p + "." for p in phan)
