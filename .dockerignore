@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.git/
+.env
+mp3/
+tests/
+docs/
+requirements-dev.txt

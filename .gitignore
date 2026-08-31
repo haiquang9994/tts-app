@@ -1,0 +1,8 @@
+/docs/superpowers/plans
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+mp3/*
+!mp3/.gitkeep

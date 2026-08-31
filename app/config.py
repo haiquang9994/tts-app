@@ -1,0 +1,55 @@
+"""Cấu hình đọc từ biến môi trường."""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Mapping
+
+# Allowlist cứng. Cho truyền giọng tuỳ ý nghĩa là biến server thành proxy TTS
+# đa ngôn ngữ cho người lạ dùng chùa.
+VOICES: dict[str, str] = {
+    "vi-VN-HoaiMyNeural": "Nữ (HoaiMy)",
+    "vi-VN-NamMinhNeural": "Nam (NamMinh)",
+}
+DEFAULT_VOICE = "vi-VN-HoaiMyNeural"
+
+
+@dataclass(frozen=True)
+class Settings:
+    tts_voice: str = DEFAULT_VOICE
+    tts_rate: str = "+20%"
+    tts_max_concurrency: int = 4
+    tts_timeout_seconds: int = 30
+    max_text_length: int = 1000
+    rate_limit_per_minute: int = 60
+    cache_dir: Path = Path("mp3")
+    cache_max_mb: int = 512
+    cache_check_every: int = 50
+    log_level: str = "INFO"
+
+
+def _int(env: Mapping[str, str], name: str, default: int) -> int:
+    try:
+        return int(env[name])
+    except (KeyError, ValueError, TypeError):
+        return default
+
+
+def load_settings(env: Mapping[str, str] | None = None) -> Settings:
+    env = os.environ if env is None else env
+    voice = env.get("TTS_VOICE", DEFAULT_VOICE)
+    if voice not in VOICES:
+        voice = DEFAULT_VOICE
+    return Settings(
+        tts_voice=voice,
+        tts_rate=env.get("TTS_RATE", "+20%"),
+        tts_max_concurrency=_int(env, "TTS_MAX_CONCURRENCY", 4),
+        tts_timeout_seconds=_int(env, "TTS_TIMEOUT_SECONDS", 30),
+        max_text_length=_int(env, "MAX_TEXT_LENGTH", 1000),
+        rate_limit_per_minute=_int(env, "RATE_LIMIT_PER_MINUTE", 60),
+        cache_dir=Path(env.get("CACHE_DIR", "mp3")),
+        cache_max_mb=_int(env, "CACHE_MAX_MB", 512),
+        cache_check_every=_int(env, "CACHE_CHECK_EVERY", 50),
+        log_level=env.get("LOG_LEVEL", "INFO"),
+    )
