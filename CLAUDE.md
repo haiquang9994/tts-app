@@ -27,7 +27,8 @@ sudo apt install sox libsox-fmt-mp3        # required for gTTS speed-up
 .venv/bin/python -m pytest tests/test_text.py                 # one file
 .venv/bin/python -m pytest tests/test_text.py::test_name      # one test
 .venv/bin/python -m pytest -k markdown                        # filter by name
-.venv/bin/python -m pytest -m integration                     # real network calls
+.venv/bin/python -m pytest -m integration                     # real network, FREE (TTS)
+.venv/bin/python -m pytest -m paid                            # real network, COSTS MONEY (Gemini)
 
 # Syntax checks (no linter or formatter is configured)
 node --check static/app.js
@@ -38,9 +39,17 @@ curl -s localhost:8000/api/status | python3 -m json.tool
 docker compose logs --tail 50
 ```
 
-`pytest.ini` sets `addopts = -m "not integration"`, so network tests are deselected by default.
-Run them before every deploy: both TTS providers use unofficial endpoints, and mocked tests can
-never catch a provider changing its protocol or blocking the server.
+`pytest.ini` deselects both network markers by default, so a plain `pytest` run costs nothing.
+
+`integration` is free — gTTS and edge-tts. **Run it before every deploy**: both use unofficial
+endpoints, and mocked tests can never catch a provider changing its protocol or blocking the
+server.
+
+`paid` calls Gemini and costs real money against a **per-day request** quota, so it is a separate
+marker rather than part of `integration`. Run it only when verifying the provider itself — a new
+key, a model rename, a prompt change. The whole file is deliberately **two calls**: one
+translation asserting every property at once, one failure asserting the error path. Keep it that
+way; splitting the assertions into readable single-purpose tests doubles what each run spends.
 
 ## Architecture
 

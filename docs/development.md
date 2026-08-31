@@ -60,3 +60,22 @@ mỗi ranh giới hẹp ở đó đều có lý do, và test sẽ chặn lại n
 
 Đừng đoán TTS đọc thế nào. Đo bằng thời lượng audio: đánh vần thì dài hơn hẳn đọc bình thường.
 Xem đoạn script đo ở cuối [text-processing.md](text-processing.md).
+
+## Test nào tốn tiền
+
+```bash
+pytest                  # 206 test offline — miễn phí, chạy thoải mái
+pytest -m integration   # gTTS + edge-tts thật — miễn phí, chạy trước mỗi lần deploy
+pytest -m paid          # Gemini thật — TỐN TIỀN, chỉ khi cần kiểm chứng nhà cung cấp
+```
+
+Mặc định `pytest.ini` loại cả hai marker mạng, nên chạy test bao nhiêu lần cũng không mất gì.
+
+`paid` tách riêng khỏi `integration` vì hạn mức Gemini tính theo **request mỗi ngày**: gộp chung
+thì mỗi lần deploy lại đốt một phần hạn mức, và ở gói free chỉ vài lần deploy là hết.
+
+File `tests/test_translate_integration.py` cố ý chỉ có **hai** lời gọi — một lần dịch kiểm tra
+mọi tính chất cùng lúc, một lần hỏng kiểm tra đường báo lỗi. Tách thành các test nhỏ dễ đọc hơn
+sẽ làm mỗi lần chạy tốn gấp đôi.
+
+Chạy `-m paid` khi: đổi key, đổi model, sửa prompt, hoặc nghi Gemini đã đổi hình dạng phản hồi.

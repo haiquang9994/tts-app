@@ -1,10 +1,16 @@
-"""Gọi Gemini thật.
+"""Gọi Gemini thật. TỐN TIỀN.
 
-Bị loại khỏi lần chạy mặc định (pytest.ini). Chạy trước mỗi lần deploy: chỉ có
-gọi thật mới biết tên model còn tồn tại, key còn sống, và hình dạng phản hồi
-chưa đổi. Bỏ qua nếu chưa cấu hình key.
+Mang marker `paid` chứ không phải `integration`, nên KHÔNG chạy cùng test tích
+hợp của TTS: gTTS và edge-tts miễn phí nên chạy trước mỗi lần deploy là hợp lý,
+còn ở đây mỗi lần chạy là tiền thật và ăn vào hạn mức request mỗi ngày.
 
-Cố ý gửi rất ít: mỗi lần chạy tốn tiền thật.
+    pytest                # 206 test offline, miễn phí
+    pytest -m integration # TTS thật, miễn phí — chạy trước mỗi lần deploy
+    pytest -m paid        # Gemini thật, TỐN TIỀN — chỉ khi cần kiểm chứng
+
+Cả file cố ý gói gọn trong ĐÚNG HAI lời gọi: một lần dịch kiểm tra mọi tính
+chất cùng lúc, một lần hỏng để kiểm tra đường báo lỗi. Gộp như vậy khó đọc hơn
+tách nhỏ, nhưng tách nhỏ thì mỗi lần chạy đốt gấp đôi hạn mức.
 """
 import os
 import pathlib
@@ -14,7 +20,7 @@ import pytest
 from app.config import Settings
 from app.translate import Translator, gemini_translate
 
-pytestmark = pytest.mark.integration
+pytestmark = pytest.mark.paid
 
 
 def _env(name: str) -> str:
@@ -43,47 +49,38 @@ def settings(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_translates_and_keeps_code_like_tokens(settings):
-    """Đây là điểm chính. Máy dịch thống kê biến 'single-flight' thành 'một
-    chuyến bay' và 'POST' thành 'BÀI'; với Gemini thì yêu cầu nằm trong prompt."""
+async def test_one_call_covers_every_property_we_depend_on(settings):
+    """MỘT lời gọi, kiểm tra tất cả — mỗi lời gọi thêm là tiền thật.
+
+    * định danh giữ nguyên tiếng Anh: máy dịch thống kê biến `single-flight`
+      thành "một chuyến bay" và `POST` thành "BÀI"
+    * cấu trúc Markdown còn nguyên: kết quả trả thẳng vào ô nhập, mà "mỗi dòng
+      là một lượt đọc" là mô hình của app
+    * phần văn xuôi thật sự được dịch
+    """
     out = await Translator(settings).translate(
-        "It collapses duplicates via single-flight, then calls `POST /api/tts`."
+        "## Architecture\n\n"
+        "- It collapses duplicates via single-flight, then calls `POST /api/tts`.\n"
+        "- The file is ready to read."
     )
 
     assert "single-flight" in out
     assert "POST /api/tts" in out
+    assert out.startswith("## ")
+    assert out.count("\n- ") == 2
     assert any(ch in out for ch in "àáảãạăâđêôơư"), "phần văn xuôi phải được dịch"
 
 
-@pytest.mark.asyncio
-async def test_preserves_markdown_structure(settings):
-    """Tiêu đề và gạch đầu dòng phải còn nguyên: kết quả trả thẳng vào ô nhập,
-    và 'mỗi dòng là một lượt đọc' là mô hình của app."""
-    out = await Translator(settings).translate(
-        "## Architecture\n\n- The file is ready to read.\n- The cache is warm."
-    )
+def test_a_failure_is_loud_and_leaks_nothing(settings):
+    """Một lời gọi hỏng, kiểm tra cả hai tính chất của đường báo lỗi.
 
-    assert out.startswith("## ")
-    assert out.count("\n- ") == 2
-
-
-def test_an_unknown_model_fails_loudly(settings):
-    """Tên model đổi theo thời gian; hỏng thì phải báo rõ chứ không im lặng."""
+    Tên model đổi theo thời gian nên hỏng phải báo rõ; và URL gọi Gemini nhúng
+    API key ngay trong query string, mà thông báo lỗi thì đi thẳng vào log.
+    """
     from app.translate import TranslateError
 
-    with pytest.raises(TranslateError, match="HTTP 404"):
+    with pytest.raises(TranslateError, match="HTTP 404") as caught:
         gemini_translate("Hello.", api_key=settings.gemini_api_key,
                          model="gemini-khong-ton-tai", timeout=30)
 
-
-def test_the_error_message_never_contains_the_api_key(settings):
-    """URL gọi Gemini nhúng key, mà thông báo lỗi đi thẳng vào log."""
-    from app.translate import TranslateError
-
-    try:
-        gemini_translate("Hello.", api_key=settings.gemini_api_key,
-                         model="gemini-khong-ton-tai", timeout=30)
-    except TranslateError as exc:
-        assert settings.gemini_api_key not in str(exc)
-    else:  # pragma: no cover
-        pytest.fail("đáng lẽ phải hỏng")
+    assert settings.gemini_api_key not in str(caught.value)
