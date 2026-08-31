@@ -27,7 +27,7 @@ bắt đầu bằng `AIza`. Token dạng `AQ.…` là credential tạm thời, h
 | `GEMINI_MODEL` | `gemini-flash-lite-latest` | Model dịch |
 | `GEMINI_MAX_PER_DAY` | `50` | Trần **chi phí** mỗi ngày; đặt `0` để tắt Gemini mà không xoá key |
 | `GEMINI_TIMEOUT_SECONDS` | `60` | Timeout một lời gọi Gemini |
-| `CACHE_DIR` | `mp3` | Thư mục cache |
+| `CACHE_DIR` | `cache` | Thư mục cache |
 | `CACHE_MAX_MB` | `512` | Vượt ngưỡng thì xoá dần file cũ nhất |
 | `CACHE_CHECK_EVERY` | `50` | Số lần ghi giữa hai lần kiểm tra dung lượng cache |
 | `LOG_LEVEL` | `INFO` | Mức log |

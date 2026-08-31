@@ -100,7 +100,7 @@ test or a config comment — do not "clean them up".
 - Never add `security_opt: no-new-privileges:true`. The host runs AppArmor; `no_new_privs` blocks
   the profile transition at `exec`, so every binary in the container — `python` included — fails
   with `operation not permitted`.
-- `user: "1001:33"` must match the host owner of `mp3/`. On this host `ubuntu` is uid 1001,
+- `user: "1001:33"` must match the host owner of `cache/`. On this host `ubuntu` is uid 1001,
   gid 33, not the usual 1000:1000.
 - The public hostname sits behind **Cloudflare Access** (single-user policy). `curl` against
   `langnghe.hipingu.health` returns a Cloudflare sign-in page, not the app — that is expected,

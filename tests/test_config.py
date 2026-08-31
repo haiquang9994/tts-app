@@ -12,17 +12,17 @@ def test_uses_defaults_when_env_is_empty():
     assert s.tts_timeout_seconds == 30
     assert s.max_text_length == 1000
     assert s.rate_limit_per_minute == 60
-    assert s.cache_dir == Path("mp3")
+    assert s.cache_dir == Path("cache")
     assert s.cache_max_mb == 512
     assert s.cache_check_every == 50
     assert s.log_level == "INFO"
 
 
 def test_reads_values_from_env():
-    s = load_settings({"TTS_RATE": "+50%", "MAX_TEXT_LENGTH": "42", "CACHE_DIR": "/data/mp3"})
+    s = load_settings({"TTS_RATE": "+50%", "MAX_TEXT_LENGTH": "42", "CACHE_DIR": "/data/cache"})
     assert s.tts_rate == "+50%"
     assert s.max_text_length == 42
-    assert s.cache_dir == Path("/data/mp3")
+    assert s.cache_dir == Path("/data/cache")
 
 
 def test_ignores_invalid_numbers_and_uses_default():

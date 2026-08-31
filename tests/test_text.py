@@ -55,6 +55,81 @@ def test_always_returns_a_string():
     assert isinstance(normalize(""), str)
 
 
+# ---- Ngày tháng: "ngày 20/7" phải đọc là "ngày 20 tháng 7" ----
+
+# gTTS coi "20/7" là đường dẫn, speak_paths đổi dấu / thành khoảng trắng nên
+# nghe ra "ngày 20 7". Viết lại ngay trong normalize để cả gTTS lẫn edge-tts
+# cùng đọc đúng, và để cache key tự đổi theo mà không phải bump VARIANT.
+DATES_TO_SPEAK = [
+    ("ngày 20/7", "ngày 20 tháng 7."),
+    ("Ngày 20/7 trời đẹp.", "Ngày 20 tháng 7 trời đẹp."),
+    ("mùng 2/9", "mùng 2 tháng 9."),
+    ("mồng 1/1", "mồng 1 tháng 1."),
+    # Số 0 đứng đầu bị đọc thành "không năm", bỏ đi.
+    ("ngày 05/07", "ngày 5 tháng 7."),
+    ("ngày 20/7/2025", "ngày 20 tháng 7 năm 2025."),
+    # Có đủ năm thì tự nó đã là ngày tháng, không cần từ khoá đứng trước.
+    ("Hợp đồng ký 20/7/2025.", "Hợp đồng ký 20 tháng 7 năm 2025."),
+    # Khoảng ngày: năm ở vế phải là bằng chứng cho cả hai đầu. Dấu gạch được
+    # đọc thành "đến", nếu không _SENTENCE_BREAK sẽ cắt khoảng thành hai câu.
+    ("7/1 - 5/2/2027", "ngày 7 tháng 1 đến ngày 5 tháng 2 năm 2027."),
+    ("Nghỉ lễ 7/1-5/2/2027.", "Nghỉ lễ ngày 7 tháng 1 đến ngày 5 tháng 2 năm 2027."),
+    ("20/7/2025 - 25/8/2026",
+     "ngày 20 tháng 7 năm 2025 đến ngày 25 tháng 8 năm 2026."),
+    # Từ khoá người viết đã gõ thì giữ nguyên, không chèn thêm "ngày" nữa.
+    ("ngày 7/1 - 5/2/2027", "ngày 7 tháng 1 đến ngày 5 tháng 2 năm 2027."),
+    ("mùng 7/1 – 5/2/2027", "mùng 7 tháng 1 đến ngày 5 tháng 2 năm 2027."),
+    # Không đầu nào có năm vẫn là khoảng ngày: bản thân cấu trúc "d/m - d/m"
+    # đã là bằng chứng. Cái giá phải trả nằm ngay dưới, ở DATES_TO_LEAVE_ALONE.
+    ("20/7 - 25/7", "ngày 20 tháng 7 đến ngày 25 tháng 7."),
+    ("Nghỉ từ 5/1 - 9/2.", "Nghỉ từ ngày 5 tháng 1 đến ngày 9 tháng 2."),
+]
+
+# Không có từ khoá chỉ ngày và cũng không có năm thì dấu / vẫn là dấu /:
+# phân số, tỷ số và đường dẫn đều dùng chung ký tự này.
+DATES_TO_LEAVE_ALONE = [
+    ("1/2 số học sinh", "1/2 số học sinh."),
+    ("Tỷ số 20/7", "Tỷ số 20/7."),
+    ("Hôm nay 20/7 trời đẹp.", "Hôm nay 20/7 trời đẹp."),
+    # Sai miền giá trị thì không phải ngày tháng.
+    ("ngày 20/13", "ngày 20/13."),
+    ("ngày 40/7", "ngày 40/7."),
+    # Năm phải đủ 4 chữ số; "1/2/3" không rõ là gì nên để nguyên.
+    ("ngày 1/2/3", "ngày 1/2/3."),
+    # Trong URL, "20/7" chỉ là hai đoạn đường dẫn.
+    ("Xem https://vi.wikipedia.org/20/7/2025",
+     "Xem https://vi.wikipedia.org/20/7/2025."),
+    ("a/b", "a/b."),
+    # Sai miền giá trị ở một đầu thì bỏ cả cụm.
+    ("7/1 - 40/2/2027", "7/1. 40/2/2027."),
+    ("20/7 - 25/13", "20/7. 25/13."),
+]
+
+
+@pytest.mark.parametrize("raw,expected", DATES_TO_SPEAK)
+def test_reads_day_slash_month_as_a_date(raw, expected):
+    assert normalize(raw) == expected
+
+
+@pytest.mark.parametrize("raw,expected", DATES_TO_LEAVE_ALONE)
+def test_leaves_slashes_that_are_not_dates_alone(raw, expected):
+    assert normalize(raw) == expected
+
+
+def test_date_range_reads_a_fraction_pair_as_dates_by_design():
+    # Cái giá đã chấp nhận của việc bỏ điều kiện "phải có năm": không có cách
+    # nào phân biệt hai phân số nối bằng gạch ngang với một khoảng ngày.
+    # Phân số đứng một mình thì vẫn nguyên vẹn — đó mới là ca thường gặp.
+    assert normalize("1/2 - 3/4") == "ngày 1 tháng 2 đến ngày 3 tháng 4."
+    assert normalize("1/2 số học sinh") == "1/2 số học sinh."
+
+
+def test_date_range_takes_the_year_from_whichever_end_has_it():
+    assert normalize("20/7/2025 - 25/7") == (
+        "ngày 20 tháng 7 năm 2025 đến ngày 25 tháng 7."
+    )
+
+
 # ---- speak_paths: viết lại đường dẫn cho gTTS ----
 
 # gTTS đánh vần từng chữ cái khi gặp dấu chấm đứng trước chữ. Đo bằng thời

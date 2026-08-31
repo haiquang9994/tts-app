@@ -4,7 +4,7 @@ __pycache__/
 .pytest_cache/
 .git/
 .env
-mp3/
+cache/
 tests/
 docs/
 requirements-dev.txt

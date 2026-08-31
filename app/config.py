@@ -45,7 +45,7 @@ class Settings:
     gemini_model: str = "gemini-flash-lite-latest"
     gemini_max_per_day: int = 50
     gemini_timeout_seconds: int = 60
-    cache_dir: Path = Path("mp3")
+    cache_dir: Path = Path("cache")
     cache_max_mb: int = 512
     cache_check_every: int = 50
     log_level: str = "INFO"
@@ -85,7 +85,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         gemini_model=env.get("GEMINI_MODEL", "gemini-flash-lite-latest"),
         gemini_max_per_day=_int(env, "GEMINI_MAX_PER_DAY", 50),
         gemini_timeout_seconds=_int(env, "GEMINI_TIMEOUT_SECONDS", 60),
-        cache_dir=Path(env.get("CACHE_DIR", "mp3")),
+        cache_dir=Path(env.get("CACHE_DIR", "cache")),
         cache_max_mb=_int(env, "CACHE_MAX_MB", 512),
         cache_check_every=_int(env, "CACHE_CHECK_EVERY", 50),
         log_level=env.get("LOG_LEVEL", "INFO"),

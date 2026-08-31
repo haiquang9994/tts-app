@@ -59,7 +59,7 @@ trong container lỗi `operation not permitted`, kể cả `python` — containe
 Container vẫn được bảo vệ bằng profile AppArmor mặc định của Docker, chạy non-root, và chỉ bind
 vào loopback.
 
-### 4. `user: "1001:33"` phải khớp chủ sở hữu `mp3/`
+### 4. `user: "1001:33"` phải khớp chủ sở hữu `cache/`
 
 Trên máy này `ubuntu` là `uid=1001 gid=33(www-data)`, **không phải** `1000:1000` như mặc định
 thường thấy. Sai uid thì container không ghi được cache.
