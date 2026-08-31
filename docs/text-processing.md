@@ -4,8 +4,8 @@ Ba tầng, chạy theo thứ tự này. Tầng nào cũng có ranh giới hẹp 
 được golden test khoá lại theo **cả hai hướng**: thứ phải đổi, và thứ phải giữ nguyên.
 
 ```
-strip_markdown  →      normalize       →  (chỉ gTTS) speak_paths
-   bỏ cú pháp     cắt câu, ngày tháng        đọc đường dẫn
+strip_markdown  →       normalize        →  (chỉ gTTS) speak_paths
+   bỏ cú pháp    cắt câu, ngày tháng, @        đọc đường dẫn
 ```
 
 Kết quả của cả ba tầng **không bao giờ hiển thị cho người dùng** — giao diện luôn giữ text gốc.
@@ -17,18 +17,35 @@ Người dùng thường dán tài liệu Markdown vào. Không lọc thì TTS �
 "thăng", `*` thành "sao", `` ` `` thành "huyền".
 
 Xử lý: tiêu đề (cả `#` lẫn kiểu gạch chân `===`, cả đuôi `## Tiêu đề ##`), gạch đầu dòng, danh
-sách đánh số, ô đánh dấu việc `- [x]`, trích dẫn `>` kể cả lồng nhau, khối code ` ``` ` và `~~~`,
+sách đánh số (chỉ phần thụt đầu dòng — số thì giữ, xem dưới), ô đánh dấu việc `- [x]`, trích dẫn `>` kể cả lồng nhau, khối code ` ``` ` và `~~~`,
 đường kẻ ngang, bảng, in đậm/nghiêng/gạch, liên kết (giữ chữ bỏ URL), liên kết tham chiếu và định
 nghĩa của nó, ảnh, chú thích cuối trang, thẻ HTML, autolink.
 
 **Ranh giới — đừng mở rộng bộ lọc này.** Đo bằng thời lượng audio thì gTTS còn phát âm cả
 `% $ = @ & ^ < >`, nhưng chúng là **nội dung chứ không phải cú pháp**: "30%" phải đọc thành "ba
-mươi phần trăm", "a = b" thành "a bằng b". Bỏ chúng đi mới là làm hỏng.
+mươi phần trăm", "a = b" thành "a bằng b". Bỏ chúng đi mới là làm hỏng. `@` dính chữ có được
+tách khoảng trắng ở tầng sau, nhưng cũng không bao giờ bị xoá.
 
 Gạch dưới chỉ bị bỏ khi đứng ở đầu hoặc cuối từ (`_nghiêng_`). Trong `snake_case_name` hay `Ha_Noi`
 nó thuộc về định danh — xoá đi sẽ dính chữ vào nhau.
 
-## 2. `normalize` — cắt câu và đọc ngày tháng
+### Danh sách đánh số giữ lại số
+
+Chỉ phần thụt đầu dòng bị bỏ, `1.` thì không: người nghe cần biết đang ở mục mấy. `1)` được chuẩn
+hoá thành `1.` vì `_SENTENCE_BREAK` chỉ ngắt nghỉ ở dấu chấm.
+
+Mục danh sách hiếm khi kết thúc bằng dấu câu, mà `normalize` gộp xuống dòng thành khoảng trắng —
+nên trước mỗi mục đánh số, câu trước đó được chấm dứt ngay ở tầng này, khi cấu trúc dòng còn
+nguyên. Không làm vậy thì `1. nội dung` + `2. nội dung` thành *"nội dung hai"*. Chỉ áp cho danh
+sách **đánh số**: ở gạch đầu dòng, hai mục dính nhau chỉ là hai câu đọc liền, không đổi nghĩa.
+
+| Văn bản | Kết quả |
+|---|---|
+| `1. nội dung` / `2. nội dung` | `1. nội dung. 2. nội dung.` |
+| `10) Mục mười` | `10. Mục mười.` |
+| `Bước 1. Mở máy` | `Bước 1. Mở máy.` (giữa câu, không phải cú pháp) |
+
+## 2. `normalize` — cắt câu, ngày tháng, dấu `@`
 
 ### Cắt câu
 
@@ -78,6 +95,21 @@ Nhưng `d/m` **đứng một mình** thì vẫn không được nới rộng. Ti
 và tỷ số, nên `1/2 số học sinh` sẽ bị đọc thành *"1 tháng 2 số học sinh"* — đây mới là ca thường
 gặp. Cũng vì vậy mà `Hôm nay 20/7 trời đẹp` **không** được viết lại: bỏ sót một ngày rẻ hơn nhiều
 so với đọc sai một phân số.
+
+### Dấu `@` dính chữ
+
+gTTS đánh vần cả cụm khi `@` dính liền hai bên. Đo bằng thời lượng audio:
+
+| Văn bản | Thời lượng |
+|---|---|
+| `mariadb@blog` | 4.49s |
+| `mariadb @ blog` | 2.33s |
+
+Xử lý: chèn khoảng trắng hai bên, **không bao giờ xoá** — `@` là nội dung. Và chỉ khi cả hai bên là
+chữ hoặc số: `@username` hay `Giá @ 5` vốn không gây đánh vần nên để nguyên.
+
+Đặt ở `normalize` cùng lý do như ngày tháng: edge-tts cũng được hưởng (đo được là nó không đọc `@`
+nên cả hai dạng đều 1.97s — tách ra không hại gì), và cache key tự đổi theo.
 
 ## 3. `speak_paths` — đọc đường dẫn (chỉ gTTS)
 

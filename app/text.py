@@ -10,6 +10,9 @@ Hai quy tắc, và cả hai đều hẹp có chủ đích:
 * "d/m" đứng một mình chỉ được đọc thành ngày tháng khi có từ chỉ ngày đứng
   trước hoặc có đủ năm bốn chữ số; riêng khoảng "d/m - d/m" thì bản thân cấu
   trúc đã đủ.
+* Dấu @ chỉ được tách khoảng trắng khi dính chữ ở CẢ HAI bên, và không bao giờ
+  bị xoá — nó là nội dung.
+* Danh sách đánh số giữ lại số; chỉ phần thụt đầu dòng bị bỏ.
 
 Nới rộng bất kỳ quy tắc nào cũng phá đường dẫn file, URL, số phiên bản và số
 tiền — chẳng hạn thêm khoảng trắng sau mọi dấu chấm sẽ biến
@@ -99,6 +102,21 @@ def _rewrite_dates(text: str) -> str:
     return _DATE_WITH_YEAR.sub(with_year, _DATE_CUED.sub(cued, text))
 
 
+# --- Dấu @ dính chữ ---
+# gTTS đánh vần cả cụm khi @ dính liền hai bên, đo bằng thời lượng audio:
+#
+#     "mariadb@blog"    -> 4.49 giây
+#     "mariadb @ blog"  -> 2.33 giây
+#
+# Chỉ chèn khoảng trắng, không bao giờ xoá: @ là nội dung. Và chỉ khi cả hai
+# bên là chữ hoặc số — "@username" hay "Giá @ 5" vốn không gây đánh vần.
+#
+# Đặt ở normalize chứ không phải speak_paths vì cùng lý do như ngày tháng:
+# edge-tts cũng hưởng, và cache key tính trên text đã normalize nên tự đổi
+# theo mà không phải bump GTTS_VARIANT/EDGE_VARIANT.
+_AT_SIGN = re.compile(r"(?<=[^\W_])@(?=[^\W_])")
+
+
 # --- Cú pháp Markdown ---
 # Đo bằng thời lượng audio thì gTTS phát âm thành lời các ký tự * _ ~ > < = @
 # & % $ ^, và người dùng nghe thấy # đọc là "thăng", * là "sao", ` là "huyền".
@@ -121,7 +139,16 @@ _MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
 _MD_HEADING_TAIL = re.compile(r"\s+#+\s*$", re.MULTILINE)
 _MD_QUOTE = re.compile(r"^\s{0,3}(?:>\s?)+", re.MULTILINE)
 _MD_BULLET = re.compile(r"^\s{0,3}[-*+]\s+", re.MULTILINE)
-_MD_ORDERED = re.compile(r"^\s{0,3}\d{1,3}[.)]\s+", re.MULTILINE)
+# Mục danh sách hiếm khi kết thúc bằng dấu câu, mà normalize gộp xuống dòng
+# thành khoảng trắng — nên số của mục sau dính vào cuối mục trước và "nội dung
+# 2. nội dung" bị đọc thành "nội dung hai". Chấm dứt câu ngay tại đây, khi cấu
+# trúc dòng còn nguyên. Chỉ làm trước mục ĐÁNH SỐ: ở gạch đầu dòng, dính nhau
+# chỉ là hai câu đọc liền, không đổi nghĩa.
+_ORDERED_BREAK = re.compile(r"([^\s.!?:;,])[ \t]*\n(?=\s{0,3}\d{1,3}[.)]\s)")
+# Danh sách đánh số: bỏ thụt đầu dòng nhưng GIỮ số — người nghe cần biết
+# đang ở mục mấy. Dấu ")" được chuẩn hoá thành "." vì _SENTENCE_BREAK chỉ
+# ngắt nghỉ ở dấu chấm; để nguyên "2)" thì số dính luôn vào câu sau.
+_MD_ORDERED = re.compile(r"^\s{0,3}(\d{1,3})[.)]\s+", re.MULTILINE)
 _MD_TASK = re.compile(r"^\s{0,3}\[[ xX]\]\s*", re.MULTILINE)
 _MD_MARKS = re.compile(r"[*`~|]+")
 # Gạch dưới chỉ là cú pháp khi đứng ở đầu hoặc cuối từ. Trong Ha_Noi hay
@@ -153,7 +180,7 @@ def strip_markdown(text: str) -> str:
     text = _MD_HEADING_TAIL.sub("", text)
     text = _MD_QUOTE.sub("", text)
     text = _MD_BULLET.sub("", text)
-    text = _MD_ORDERED.sub("", text)
+    text = _MD_ORDERED.sub(r"\1. ", _ORDERED_BREAK.sub(r"\1.\n", text))
     text = _MD_TASK.sub("", text)
 
     text = _MD_UNDERSCORE.sub(" ", text)
@@ -167,6 +194,7 @@ def normalize(text: str) -> str:
     # Bỏ khoảng trắng thừa trước dấu câu. Cần thiết sau khi lọc Markdown:
     # "và `mã`." thành "và mã ." nếu không dọn.
     text = re.sub(r"\s+([,;:.!?])", r"\1", text)
+    text = _AT_SIGN.sub(" @ ", text)
     text = _rewrite_dates(text)
 
     parts = [p.strip() for p in _SENTENCE_BREAK.split(text) if p and p.strip()]

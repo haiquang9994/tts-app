@@ -193,8 +193,10 @@ MARKDOWN_TO_STRIP = [
     ("Chữ *nghiêng* và `mã` và ~~gạch~~", "Chữ nghiêng và mã và gạch."),
     ("* Mục thứ nhất", "Mục thứ nhất."),
     ("+ Mục dùng dấu cộng", "Mục dùng dấu cộng."),
-    ("1. Mục có số", "Mục có số."),
-    ("2) Mục dùng ngoặc", "Mục dùng ngoặc."),
+    # Số thứ tự là NỘI DUNG: người nghe cần biết đang ở mục mấy. Dấu ")"
+    # được chuẩn hoá thành "." vì _SENTENCE_BREAK chỉ ngắt nghỉ ở dấu chấm.
+    ("1. Mục có số", "1. Mục có số."),
+    ("2) Mục dùng ngoặc", "2. Mục dùng ngoặc."),
     ("- [x] Việc đã xong", "Việc đã xong."),
     ("- [ ] Việc chưa xong", "Việc chưa xong."),
     ("> Trích dẫn", "Trích dẫn."),
@@ -226,7 +228,6 @@ CONTENT_NOT_SYNTAX = [
     "Tăng 30% so với năm ngoái.",
     "Nếu a = b thì đúng.",
     "Giá $5 và 1.500.000 đồng.",
-    "Gửi tới a@b.com nhé.",
     "Biến snake_case_name và Ha_Noi.",
     "Đường dẫn app/main.py không đổi.",
     "Phiên bản 3.12.4 ra rồi.",
@@ -266,3 +267,62 @@ def test_no_stray_space_before_punctuation():
 def test_strip_markdown_is_idempotent():
     once = normalize("## Mục tiêu **quan trọng**")
     assert normalize(once) == once
+
+
+def test_numbered_list_keeps_its_number():
+    # Bỏ luôn số thì người nghe không biết đang ở mục mấy. Đo bằng thời lượng
+    # audio: "1. nội dung. 2. nội dung." mất 3.34s, gần đúng bằng
+    # "Một. nội dung. Hai. nội dung." (3.43s) — gTTS đọc số thành lời.
+    assert normalize("1. nội dung\n2. nội dung") == "1. nội dung. 2. nội dung."
+    assert normalize("10) Mục mười") == "10. Mục mười."
+    # Số thứ tự giữa câu không phải cú pháp danh sách, vốn đã nguyên vẹn.
+    assert normalize("Bước 1. Mở máy") == "Bước 1. Mở máy."
+
+
+def test_numbered_item_ends_the_previous_sentence():
+    # Mục danh sách hiếm khi có dấu câu ở cuối, mà normalize gộp xuống dòng
+    # thành khoảng trắng: không chấm câu tại đây thì số của mục sau dính vào
+    # mục trước và "nội dung 2" bị đọc thành "nội dung hai".
+    assert normalize("1. nội dung\n2. nội dung\n3. nội dung") == (
+        "1. nội dung. 2. nội dung. 3. nội dung."
+    )
+    assert normalize("Các bước:\n1. Mở máy\n2. Đóng máy") == (
+        "Các bước: 1. Mở máy. 2. Đóng máy."
+    )
+    # Dấu câu người viết đã gõ thì không nhân đôi.
+    assert normalize("1. Mục một.\n2. Mục hai") == "1. Mục một. 2. Mục hai."
+
+
+# ---- Dấu @ dính chữ ----
+
+# gTTS đánh vần cả cụm khi @ dính liền hai bên. Đo bằng thời lượng audio:
+# "mariadb@blog" mất 4.49s, "mariadb @ blog" chỉ 2.33s.
+AT_SIGN_TO_SPACE = [
+    ("mariadb@blog", "mariadb @ blog."),
+    ("dùng mariadb@blog để chạy", "dùng mariadb @ blog để chạy."),
+    ("Gửi tới a@b.com nhé.", "Gửi tới a @ b.com nhé."),
+]
+
+# @ không dính chữ ở cả hai bên thì không phải ca gây đánh vần.
+AT_SIGN_LEFT_ALONE = [
+    ("@username", "@username."),
+    ("Giá @ 5 đồng", "Giá @ 5 đồng."),
+    ("a @b", "a @b."),
+]
+
+
+@pytest.mark.parametrize("raw,expected", AT_SIGN_TO_SPACE)
+def test_spaces_out_at_sign_between_words(raw, expected):
+    assert normalize(raw) == expected
+
+
+@pytest.mark.parametrize("raw,expected", AT_SIGN_LEFT_ALONE)
+def test_leaves_a_lone_at_sign_alone(raw, expected):
+    assert normalize(raw) == expected
+
+
+def test_at_sign_survives_the_path_stage():
+    # @ vẫn là nội dung: chỉ tách khoảng trắng, không bao giờ xoá.
+    assert speak_paths(normalize("Gửi tới a@b.com nhé.")) == (
+        "Gửi tới a @ b chấm com nhé."
+    )
