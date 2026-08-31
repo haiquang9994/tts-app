@@ -6,7 +6,7 @@ from edge_tts.exceptions import NoAudioReceived
 
 from app import cache, tts
 from app.config import Settings
-from app.tts import Synthesizer, TTSError, atempo_tu_rate
+from app.tts import Synthesizer, TTSError, tempo_tu_rate
 
 
 @pytest.fixture(autouse=True)
@@ -35,8 +35,8 @@ def provider_hong(exc=OSError("hỏng")):
 @pytest.mark.parametrize("rate,mong_doi", [
     ("+0%", 1.0), ("+20%", 1.2), ("+50%", 1.5), ("+100%", 2.0), ("-50%", 0.5),
 ])
-def test_doi_rate_sang_atempo(rate, mong_doi):
-    assert atempo_tu_rate(rate) == pytest.approx(mong_doi)
+def test_doi_rate_sang_tempo(rate, mong_doi):
+    assert tempo_tu_rate(rate) == pytest.approx(mong_doi)
 
 
 async def test_dung_gtts_va_ghi_cache(tmp_path: Path):

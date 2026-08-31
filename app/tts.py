@@ -2,8 +2,10 @@
 
 Chuỗi nhà cung cấp cố định:
 
-  1. gTTS (Google) — mặc định, tăng tốc bằng bộ lọc `atempo` của ffmpeg nên
+  1. gTTS (Google) — mặc định, tăng tốc bằng hiệu ứng `tempo` của sox nên
      giữ nguyên cao độ, không chói như hack đổi frame_rate của bản Django cũ.
+     Dùng sox thay ffmpeg vì cùng thuật toán WSOLA mà chỉ thêm ~12MB vào
+     image, trong khi ffmpeg thêm tới ~450MB.
   2. edge-tts (Microsoft) — chỉ dùng khi gTTS hỏng hẳn. Luôn giọng HoaiMy và
      KHÔNG đổi tốc độ.
 
@@ -38,6 +40,10 @@ _RETRY_DELAYS: tuple[float, ...] = (0.0, 0.5, 1.5)
 # audio thay đổi để cache cũ không bị dùng nhầm.
 _CACHE_VARIANT = "gtts-vi"
 
+# gTTS trả MP3 64kbps. Không ép bitrate thì cả sox lẫn ffmpeg đều mã hoá lại ở
+# 32kbps mặc định, tức là bước tăng tốc âm thầm làm giảm một nửa chất lượng.
+_MP3_BITRATE_KBPS = 64
+
 Provider = Callable[[str], Awaitable[bytes]]
 
 
@@ -45,25 +51,26 @@ class TTSError(RuntimeError):
     """Nhà cung cấp TTS không trả về được audio."""
 
 
-def atempo_tu_rate(rate: str) -> float:
-    """'+20%' -> 1.2. Bộ lọc atempo chỉ nhận 0.5–2.0, khớp đúng khoảng -50%..+100%."""
+def tempo_tu_rate(rate: str) -> float:
+    """'+20%' -> 1.2. Khoảng -50%..+100% cho ra 0.5–2.0."""
     return 1.0 + int(rate.rstrip("%")) / 100.0
 
 
 def _doi_toc_do(data: bytes, rate: str) -> bytes:
-    tempo = atempo_tu_rate(rate)
+    tempo = tempo_tu_rate(rate)
     if abs(tempo - 1.0) < 1e-9:
         return data
     proc = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error",
-         "-i", "pipe:0", "-filter:a", f"atempo={tempo:g}", "-f", "mp3", "pipe:1"],
+        ["sox", "-t", "mp3", "-",
+         "-C", str(_MP3_BITRATE_KBPS), "-t", "mp3", "-",
+         "tempo", f"{tempo:g}"],
         input=data,
         capture_output=True,
         check=False,
     )
     if proc.returncode != 0 or not proc.stdout:
         loi = proc.stderr.decode("utf-8", "replace")[:200]
-        raise TTSError(f"ffmpeg đổi tốc độ hỏng: {loi}")
+        raise TTSError(f"sox đổi tốc độ hỏng: {loi}")
     return proc.stdout
 
 

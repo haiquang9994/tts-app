@@ -3,6 +3,8 @@
 Test mock không bao giờ phát hiện được kiểu hỏng đáng lo nhất: Google hoặc
 Microsoft đổi giao thức hay chặn server. Nên chạy bộ này trước mỗi lần deploy.
 """
+import shutil
+
 import pytest
 
 from app.tts import edge_provider, gtts_provider
@@ -20,13 +22,26 @@ async def test_gtts_tra_ve_mp3_hop_le():
     assert la_mp3(data)
 
 
-async def test_ffmpeg_tang_toc_lam_file_ngan_lai():
+@pytest.mark.skipif(shutil.which("sox") is None, reason="máy này chưa cài sox")
+async def test_sox_tang_toc_lam_file_ngan_lai():
     goc = await gtts_provider("Xin chào, đây là một câu dài để đo thời lượng.", rate="+0%")
     nhanh = await gtts_provider("Xin chào, đây là một câu dài để đo thời lượng.", rate="+50%")
 
     assert la_mp3(nhanh)
-    # Đọc nhanh hơn 1.5 lần thì file phải nhỏ đi rõ rệt.
-    assert len(nhanh) < len(goc) * 0.85, f"gốc={len(goc)} nhanh={len(nhanh)}"
+    # Đọc nhanh 1.5 lần ở cùng bitrate thì file phải nhỏ đi tương ứng (~2/3).
+    ty_le = len(nhanh) / len(goc)
+    assert 0.55 < ty_le < 0.80, f"tỉ lệ {ty_le:.3f}: gốc={len(goc)} nhanh={len(nhanh)}"
+
+
+@pytest.mark.skipif(shutil.which("sox") is None, reason="máy này chưa cài sox")
+async def test_tang_toc_khong_lam_giam_bitrate():
+    """Không ép bitrate thì sox mã hoá lại ở 32kbps, mất một nửa chất lượng."""
+    goc = await gtts_provider("Xin chào, đây là bài kiểm tra chất lượng.", rate="+0%")
+    nhanh = await gtts_provider("Xin chào, đây là bài kiểm tra chất lượng.", rate="+20%")
+
+    # Cùng bitrate thì kích thước tỉ lệ nghịch với tốc độ: 1/1.2 ~ 0.83.
+    ty_le = len(nhanh) / len(goc)
+    assert 0.75 < ty_le < 0.92, f"tỉ lệ {ty_le:.3f} — nhiều khả năng bitrate bị hạ"
 
 
 async def test_edge_tts_du_phong_van_dung_duoc():

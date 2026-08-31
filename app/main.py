@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -34,6 +35,36 @@ limiter = RateLimiter(settings.rate_limit_per_minute)
 
 _CO_CHU_HOAC_SO = re.compile(r"[^\W_]", re.UNICODE)
 
+# Đường dẫn tài nguyên tĩnh xuất hiện trong HTML, để gắn thêm phiên bản.
+_DUONG_DAN_TAI_NGUYEN = re.compile(r"/static/[A-Za-z0-9_./-]+?\.(?:js|css|png|svg)")
+
+# HTML đã gắn phiên bản, dựng một lần lúc khởi động.
+_TRANG: dict[str, str] = {}
+
+
+def _bam_noi_dung(p: Path) -> str:
+    return hashlib.md5(p.read_bytes()).hexdigest()[:10]
+
+
+def _gan_phien_ban(html: str) -> str:
+    """Thêm ?v=<băm nội dung> vào mọi đường dẫn tĩnh trong HTML.
+
+    Cloudflare cache tài nguyên tĩnh nhiều giờ. Không có bước này thì sau mỗi
+    lần deploy người dùng nhận HTML mới nhưng JS/CSS cũ — hai bản lệch nhau và
+    trang lỗi. Băm theo nội dung nên URL chỉ đổi khi file thật sự đổi.
+    """
+
+    def thay(m: re.Match[str]) -> str:
+        p = STATIC_DIR / m.group(0)[len("/static/"):]
+        return f"{m.group(0)}?v={_bam_noi_dung(p)}" if p.is_file() else m.group(0)
+
+    return _DUONG_DAN_TAI_NGUYEN.sub(thay, html)
+
+
+def _nap_trang() -> None:
+    for ten in ("index.html", "about.html"):
+        _TRANG[ten] = _gan_phien_ban((STATIC_DIR / ten).read_text("utf-8"))
+
 
 class TTSRequest(BaseModel):
     # Không có `voice`/`rate`: giọng và tốc độ do server quyết định, giao diện
@@ -52,11 +83,25 @@ async def lifespan(_: FastAPI):
     if so_file:
         log.info("Dọn %d file tạm mồ côi lúc khởi động", so_file)
     cache.enforce_limit(settings.cache_dir, settings.cache_max_mb)
+    _nap_trang()
     yield
 
 
 app = FastAPI(title="Tự động đọc", docs_url=None, redoc_url=None, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.middleware("http")
+async def header_cache_tai_nguyen(request: Request, call_next):
+    """Buộc cache kiểm tra lại tài nguyên tĩnh.
+
+    Lớp bảo vệ thứ hai sau việc gắn ?v= — phòng khi có tài nguyên nào được
+    tham chiếu mà không đi qua HTML.
+    """
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
 
 
 @app.get("/healthz")
@@ -67,14 +112,14 @@ async def healthz() -> dict[str, str]:
 
 
 @app.get("/")
-async def trang_chu() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+async def trang_chu() -> HTMLResponse:
+    return HTMLResponse(_TRANG["index.html"])
 
 
 @app.get("/about")
 @app.get("/about/")
-async def trang_gioi_thieu() -> FileResponse:
-    return FileResponse(STATIC_DIR / "about.html")
+async def trang_gioi_thieu() -> HTMLResponse:
+    return HTMLResponse(_TRANG["about.html"])
 
 
 @app.post("/api/tts")

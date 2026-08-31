@@ -3,7 +3,7 @@
 const PREFETCH_SIZE = 3;
 const TICK_MS = 500;
 // Đoạn dài hơn ngần này từ thì nút "Xuống dòng" mới cắt.
-const MAX_TU_MOI_DONG = 30;
+const MAX_WORDS_PER_LINE = 30;
 
 const STORAGE = {
   queue: '__queue_texts__',
@@ -12,7 +12,7 @@ const STORAGE = {
 
 // Lỗi tạm thời thì thử lại; lỗi do chính nội dung (413, 422) thì thử lại
 // bao nhiêu lần cũng hỏng y như vậy, phải bỏ câu đó đi kẻo lặp vô hạn.
-const coTheThuLai = (status) => !status || status === 429 || status >= 500;
+const isRetryable = (status) => !status || status === 429 || status >= 500;
 
 const postJson = async (url, body) => {
   let res;
@@ -48,57 +48,57 @@ const postJson = async (url, body) => {
    Dùng match() thay vì split() với lookbehind: Safari dưới 16.4 không hỗ trợ
    lookbehind và sẽ ném SyntaxError lúc phân tích, làm chết cả file script. */
 
-const demTu = (s) => (s.trim().match(/\S+/g) || []).length;
+const countWords = (s) => (s.trim().match(/\S+/g) || []).length;
 
-const tachTheo = (s, re) => (s.match(re) || [s]).map((p) => p.trim()).filter(Boolean);
+const splitBy = (s, re) => (s.match(re) || [s]).map((p) => p.trim()).filter(Boolean);
 
-const ngatCung = (s, gioiHan) => {
-  const tu = (s.match(/\S+/g) || []);
-  const ra = [];
-  for (let i = 0; i < tu.length; i += gioiHan) ra.push(tu.slice(i, i + gioiHan).join(' '));
-  return ra;
+const hardSplit = (s, limit) => {
+  const words = s.match(/\S+/g) || [];
+  const out = [];
+  for (let i = 0; i < words.length; i += limit) out.push(words.slice(i, i + limit).join(' '));
+  return out;
 };
 
-const gomThanhDong = (manh, gioiHan) => {
-  const dong = [];
-  let hienTai = [];
-  let soTu = 0;
-  for (const m of manh) {
-    const n = demTu(m);
-    if (soTu > 0 && soTu + n > gioiHan) {
-      dong.push(hienTai.join(' '));
-      hienTai = [];
-      soTu = 0;
+const packIntoLines = (pieces, limit) => {
+  const lines = [];
+  let current = [];
+  let wordCount = 0;
+  for (const piece of pieces) {
+    const n = countWords(piece);
+    if (wordCount > 0 && wordCount + n > limit) {
+      lines.push(current.join(' '));
+      current = [];
+      wordCount = 0;
     }
-    hienTai.push(m);
-    soTu += n;
+    current.push(piece);
+    wordCount += n;
   }
-  if (hienTai.length) dong.push(hienTai.join(' '));
-  return dong;
+  if (current.length) lines.push(current.join(' '));
+  return lines;
 };
 
-const tuDongXuongDong = (text, gioiHan) => {
-  gioiHan = gioiHan || MAX_TU_MOI_DONG;
+const autoWrap = (text, limit) => {
+  limit = limit || MAX_WORDS_PER_LINE;
   return text
     .split('\n')
-    .map((doan) => {
-      if (!doan.trim()) return '';
+    .map((paragraph) => {
+      if (!paragraph.trim()) return '';
       // Đủ ngắn thì để nguyên — không cần mỗi câu một dòng.
-      if (demTu(doan) <= gioiHan) return doan.trim();
+      if (countWords(paragraph) <= limit) return paragraph.trim();
 
-      const manh = [];
-      for (const cau of tachTheo(doan, /[^.!?…]+[.!?…]*\s*/g)) {
-        if (demTu(cau) <= gioiHan) {
-          manh.push(cau);
+      const pieces = [];
+      for (const sentence of splitBy(paragraph, /[^.!?…]+[.!?…]*\s*/g)) {
+        if (countWords(sentence) <= limit) {
+          pieces.push(sentence);
           continue;
         }
         // Câu tự nó đã quá dài: cắt tiếp ở dấu phẩy, rồi mới cắt cứng theo từ.
-        for (const cum of tachTheo(cau, /[^,;:]+[,;:]*\s*/g)) {
-          if (demTu(cum) <= gioiHan) manh.push(cum);
-          else manh.push(...ngatCung(cum, gioiHan));
+        for (const clause of splitBy(sentence, /[^,;:]+[,;:]*\s*/g)) {
+          if (countWords(clause) <= limit) pieces.push(clause);
+          else pieces.push(...hardSplit(clause, limit));
         }
       }
-      return gomThanhDong(manh, gioiHan).join('\n');
+      return packIntoLines(pieces, limit).join('\n');
     })
     .join('\n');
 };
@@ -157,7 +157,7 @@ const RunAudio = function (params) {
       })
       .catch((err) => {
         console.error(err);
-        if (coTheThuLai(err.status)) {
+        if (isRetryable(err.status)) {
           // Trả câu về đầu hàng đợi. Mất mạng hay bị giới hạn tốc độ không
           // được phép nuốt mất nội dung người dùng đã nhập.
           this.queue_texts.unshift(text);
@@ -381,26 +381,26 @@ const textareaEl = document.getElementById('text_textarea');
 const textareaBtnEl = document.getElementById('text_textarea_btn');
 const wrapBtnEl = document.getElementById('wrap_btn');
 
-const capNhatNut = () => {
-  const rong = !textareaEl.value.trim();
-  textareaBtnEl.disabled = rong;
-  wrapBtnEl.disabled = rong;
+const updateButtons = () => {
+  const isEmpty = !textareaEl.value.trim();
+  textareaBtnEl.disabled = isEmpty;
+  wrapBtnEl.disabled = isEmpty;
 };
 
-textareaEl.addEventListener('input', capNhatNut);
+textareaEl.addEventListener('input', updateButtons);
 
 wrapBtnEl.addEventListener('click', () => {
   // Sửa thẳng trong ô nhập để người dùng xem lại và chỉnh trước khi thêm.
-  textareaEl.value = tuDongXuongDong(textareaEl.value);
+  textareaEl.value = autoWrap(textareaEl.value);
   textareaEl.focus();
-  capNhatNut();
+  updateButtons();
 });
 
 textareaBtnEl.addEventListener('click', () => {
   processText(textareaEl.value);
   textareaEl.value = '';
-  capNhatNut();
+  updateButtons();
 });
 
 // Phơi ra để kiểm thử tự động.
-window.tuDongXuongDong = tuDongXuongDong;
+window.autoWrap = autoWrap;

@@ -8,13 +8,21 @@ Bản chạy thật: https://langnghe.hipingu.health
 ## Kiến trúc
 
 Một service FastAPI vừa phục vụ file tĩnh vừa lo API. Text đi vào được chuẩn hoá, tra cache MP3
-trên đĩa, nếu trượt thì gọi `edge-tts` (giọng neural tiếng Việt của Microsoft) rồi trả về MP3 dạng
-base64. Hàng đợi nằm ở phía trình duyệt trong `localStorage`, server không lưu trạng thái gì.
+trên đĩa, nếu trượt thì gọi TTS rồi trả về MP3 dạng base64. Hàng đợi nằm ở phía trình duyệt trong
+`localStorage`, server không lưu trạng thái gì.
 
-`edge-tts` chạy hoàn toàn phía server — nó mở WebSocket tới endpoint Azure Speech, không cần
-trình duyệt hay Chromium nào trong container.
+Chuỗi nhà cung cấp TTS:
 
-Không database, không ffmpeg, không build step cho frontend.
+1. **gTTS** (Google) — mặc định. Tăng tốc `+20%` bằng hiệu ứng `tempo` của sox, giữ nguyên cao độ.
+2. **edge-tts** (Microsoft, giọng HoaiMy) — chỉ dùng khi gTTS hỏng, không đổi tốc độ.
+
+Kết quả từ nhà cung cấp dự phòng **không được ghi vào cache**, để khi gTTS hồi phục thì câu đó
+được đọc lại bằng giọng mong muốn.
+
+Cả hai chạy hoàn toàn phía server, không cần trình duyệt hay Chromium nào trong container.
+Người dùng không chọn giọng hay tốc độ — giao diện không có tuỳ chọn đó.
+
+Không database, không ffmpeg (dùng sox nhẹ hơn ~440MB), không build step cho frontend.
 
 ## Chạy
 
@@ -50,13 +58,23 @@ Xem `.env.example`. Đáng chú ý:
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `APP_PORT` | `8010` | Cổng trên host |
-| `TTS_VOICE` | `vi-VN-HoaiMyNeural` | Giọng mặc định (`vi-VN-NamMinhNeural` là giọng nam) |
-| `TTS_RATE` | `+20%` | Tốc độ mặc định, phải có dấu (`+0%` chứ không phải `0%`) |
+| `TTS_FALLBACK_VOICE` | `vi-VN-HoaiMyNeural` | Giọng edge-tts dùng khi gTTS hỏng |
+| `TTS_RATE` | `+20%` | Tốc độ đọc của gTTS, phải có dấu (`+0%` chứ không phải `0%`) |
 | `MAX_TEXT_LENGTH` | `1000` | Giới hạn ký tự mỗi request |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Hạn mức mỗi IP |
 | `CACHE_MAX_MB` | `512` | Vượt ngưỡng thì xoá file cũ nhất |
 
 ## Lưu ý vận hành
+
+**Cloudflare cache tài nguyên tĩnh 4 tiếng và ghi đè header `Cache-Control` của origin.** Vì vậy
+mọi đường dẫn tĩnh trong HTML đều được gắn `?v=<băm nội dung>` lúc khởi động (`_gan_phien_ban`
+trong `app/main.py`). Bỏ bước này thì sau mỗi lần deploy người dùng nhận HTML mới nhưng JS/CSS cũ,
+và trang lỗi. Băm theo nội dung nên URL chỉ đổi khi file thật sự đổi.
+
+**Ảnh và file tĩnh phải cho mọi user đọc được.** Container chạy `user: "1001:33"`, còn `COPY` giữ
+nguyên mode file nguồn. File mode 640 sẽ khiến StaticFiles gửi 200 kèm Content-Length rồi đóng kết
+nối không có thân phản hồi, và Cloudflare trả 520. Dockerfile có `chmod -R a+rX` để chặn việc đó;
+`tests/test_static_assets.py` kiểm tra ngay từ working tree.
 
 **Không thêm `security_opt: no-new-privileges:true` vào compose trên host này.** Host bật AppArmor;
 `no_new_privs` chặn việc chuyển profile AppArmor lúc `exec`, làm mọi binary trong container lỗi

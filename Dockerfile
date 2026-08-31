@@ -4,6 +4,13 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
+# sox de tang toc doc cho gTTS (gTTS khong co tham so toc do).
+# Dung sox chu khong dung ffmpeg: cung thuat toan WSOLA giu nguyen cao do,
+# nhung sox chi them ~12MB vao image con ffmpeg them toi ~450MB.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends sox libsox-fmt-mp3 \
+ && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY requirements.txt ./
