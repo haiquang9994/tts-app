@@ -16,20 +16,16 @@
     <p class="hint">Chọn file .txt chứa nội dung tiếng Việt muốn nghe, hoặc dán văn bản vào ô bên dưới.</p>
     <input type="file" id="text_file" accept=".txt,text/plain" multiple>
 
-    <div class="controls">
-      <label>Giọng <select id="voice"></select></label>
-      <label>Tốc độ <select id="rate"></select></label>
-    </div>
-    <p class="hint">
-      Đổi giọng hoặc tốc độ chỉ áp dụng cho các câu sinh mới. Muốn áp dụng ngay cho cả hàng đợi
-      thì bấm nút xoá rồi nhập lại.
-    </p>
-
     <textarea id="text_textarea" rows="6"></textarea>
+    <p class="hint">
+      Mỗi dòng là một lượt đọc. Đoạn quá dài nên bấm "Xuống dòng" để tự cắt thành từng dòng
+      ngắn hơn — đọc mượt hơn và tránh gửi đoạn quá dài lên máy chủ.
+    </p>
     <div class="row">
       <button class="btn" id="text_textarea_btn" disabled>
         <img src="/static/img/check.png" alt="Thêm vào hàng đợi">
       </button>
+      <button class="btn btn-chu" id="wrap_btn" disabled>Xuống dòng</button>
       <button class="btn" id="remove_all">
         <img src="/static/img/remove.png" alt="Xoá tất cả">
       </button>

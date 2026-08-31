@@ -1,39 +1,13 @@
 'use strict';
 
-const VOICES = [
-  { id: 'vi-VN-HoaiMyNeural', label: 'Nữ (HoaiMy)' },
-  { id: 'vi-VN-NamMinhNeural', label: 'Nam (NamMinh)' },
-];
-const RATES = ['+0%', '+10%', '+20%', '+30%', '+50%'];
-const DEFAULT_VOICE = 'vi-VN-HoaiMyNeural';
-const DEFAULT_RATE = '+20%';
 const PREFETCH_SIZE = 3;
 const TICK_MS = 500;
+// Đoạn dài hơn ngần này từ thì nút "Xuống dòng" mới cắt.
+const MAX_TU_MOI_DONG = 30;
 
 const STORAGE = {
   queue: '__queue_texts__',
   items: '__base64_items__',
-  voice: '__tts_voice__',
-  rate: '__tts_rate__',
-};
-
-// localStorage có thể ném lỗi (chế độ riêng tư, trình duyệt chặn lưu trữ),
-// nên mọi lần đọc ghi đều phải bọc try/catch.
-const readSetting = (key, allowed, fallback) => {
-  try {
-    const value = window.localStorage.getItem(key);
-    return allowed.indexOf(value) !== -1 ? value : fallback;
-  } catch (e) {
-    return fallback;
-  }
-};
-
-const writeSetting = (key, value) => {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch (e) {
-    console.error(e);
-  }
 };
 
 // Lỗi tạm thời thì thử lại; lỗi do chính nội dung (413, 422) thì thử lại
@@ -69,6 +43,67 @@ const postJson = async (url, body) => {
 
   return res.json();
 };
+
+/* ---------- Tự động xuống dòng ----------
+   Dùng match() thay vì split() với lookbehind: Safari dưới 16.4 không hỗ trợ
+   lookbehind và sẽ ném SyntaxError lúc phân tích, làm chết cả file script. */
+
+const demTu = (s) => (s.trim().match(/\S+/g) || []).length;
+
+const tachTheo = (s, re) => (s.match(re) || [s]).map((p) => p.trim()).filter(Boolean);
+
+const ngatCung = (s, gioiHan) => {
+  const tu = (s.match(/\S+/g) || []);
+  const ra = [];
+  for (let i = 0; i < tu.length; i += gioiHan) ra.push(tu.slice(i, i + gioiHan).join(' '));
+  return ra;
+};
+
+const gomThanhDong = (manh, gioiHan) => {
+  const dong = [];
+  let hienTai = [];
+  let soTu = 0;
+  for (const m of manh) {
+    const n = demTu(m);
+    if (soTu > 0 && soTu + n > gioiHan) {
+      dong.push(hienTai.join(' '));
+      hienTai = [];
+      soTu = 0;
+    }
+    hienTai.push(m);
+    soTu += n;
+  }
+  if (hienTai.length) dong.push(hienTai.join(' '));
+  return dong;
+};
+
+const tuDongXuongDong = (text, gioiHan) => {
+  gioiHan = gioiHan || MAX_TU_MOI_DONG;
+  return text
+    .split('\n')
+    .map((doan) => {
+      if (!doan.trim()) return '';
+      // Đủ ngắn thì để nguyên — không cần mỗi câu một dòng.
+      if (demTu(doan) <= gioiHan) return doan.trim();
+
+      const manh = [];
+      for (const cau of tachTheo(doan, /[^.!?…]+[.!?…]*\s*/g)) {
+        if (demTu(cau) <= gioiHan) {
+          manh.push(cau);
+          continue;
+        }
+        // Câu tự nó đã quá dài: cắt tiếp ở dấu phẩy, rồi mới cắt cứng theo từ.
+        for (const cum of tachTheo(cau, /[^,;:]+[,;:]*\s*/g)) {
+          if (demTu(cum) <= gioiHan) manh.push(cum);
+          else manh.push(...ngatCung(cum, gioiHan));
+        }
+      }
+      return gomThanhDong(manh, gioiHan).join('\n');
+    })
+    .join('\n');
+};
+
+/* ---------- Hàng đợi đọc ---------- */
 
 const RunAudio = function (params) {
   this.queue_texts = [];
@@ -113,7 +148,9 @@ const RunAudio = function (params) {
 
     this.text_to_speech(text)
       .then((res) => {
-        this.base64_items.push(res);
+        // Giữ TEXT GỐC để hiển thị. Chuẩn hoá chỉ phục vụ việc đọc, người dùng
+        // không cần thấy phiên bản đã bị cắt câu.
+        this.base64_items.push({ text: text, base64: res.base64, name: res.name });
         this.save_base64_items();
         this.save_queue_texts();
         this.set_status('');
@@ -259,11 +296,7 @@ const RunAudio = function (params) {
     }
   };
 
-  this.text_to_speech = (text) => postJson('/api/tts', {
-    text: text,
-    voice: readSetting(STORAGE.voice, VOICES.map((v) => v.id), DEFAULT_VOICE),
-    rate: readSetting(STORAGE.rate, RATES, DEFAULT_RATE),
-  });
+  this.text_to_speech = (text) => postJson('/api/tts', { text: text });
 
   this.toggle_play_pause = () => {
     if (!this.media) return;
@@ -308,22 +341,6 @@ const RunAudio = function (params) {
   };
 };
 
-const dungBoChon = (el, options, storageKey, fallback) => {
-  el.innerHTML = options
-    .map((o) => '<option value="' + o.id + '">' + o.label + '</option>')
-    .join('');
-  el.value = readSetting(storageKey, options.map((o) => o.id), fallback);
-  el.addEventListener('change', () => writeSetting(storageKey, el.value));
-};
-
-dungBoChon(document.getElementById('voice'), VOICES, STORAGE.voice, DEFAULT_VOICE);
-dungBoChon(
-  document.getElementById('rate'),
-  RATES.map((r) => ({ id: r, label: r })),
-  STORAGE.rate,
-  DEFAULT_RATE
-);
-
 const runAudio = new RunAudio({
   playPauseEl: document.getElementById('playPause'),
   nextEl: document.getElementById('next'),
@@ -362,13 +379,28 @@ document.getElementById('text_file').addEventListener('change', async (e) => {
 
 const textareaEl = document.getElementById('text_textarea');
 const textareaBtnEl = document.getElementById('text_textarea_btn');
+const wrapBtnEl = document.getElementById('wrap_btn');
 
-textareaEl.addEventListener('input', () => {
-  textareaBtnEl.disabled = !textareaEl.value.trim();
+const capNhatNut = () => {
+  const rong = !textareaEl.value.trim();
+  textareaBtnEl.disabled = rong;
+  wrapBtnEl.disabled = rong;
+};
+
+textareaEl.addEventListener('input', capNhatNut);
+
+wrapBtnEl.addEventListener('click', () => {
+  // Sửa thẳng trong ô nhập để người dùng xem lại và chỉnh trước khi thêm.
+  textareaEl.value = tuDongXuongDong(textareaEl.value);
+  textareaEl.focus();
+  capNhatNut();
 });
 
 textareaBtnEl.addEventListener('click', () => {
   processText(textareaEl.value);
   textareaEl.value = '';
-  textareaBtnEl.disabled = true;
+  capNhatNut();
 });
+
+// Phơi ra để kiểm thử tự động.
+window.tuDongXuongDong = tuDongXuongDong;

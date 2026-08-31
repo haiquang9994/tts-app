@@ -14,9 +14,6 @@ h1, h3, .panel, .row, .hint { user-select: none; -webkit-user-select: none; }
 
 .hint { margin: 5px 0; font-size: 12px; color: #666; }
 
-.controls { display: flex; gap: 12px; flex-wrap: wrap; margin: 10px 0; }
-.controls label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.controls select { font-family: inherit; font-size: 13px; padding: 4px; border-radius: 6px; }
 
 textarea {
   width: 100%;
@@ -48,6 +45,7 @@ textarea {
 .btn:active { background-color: antiquewhite; opacity: 0.5; }
 .btn:disabled { opacity: 0.4; }
 .btn img { height: 32px; }
+.btn-chu { font-family: inherit; font-size: 15px; align-items: center; }
 
 .btn.play img.play-img { display: block; }
 .btn.play img.pause-img { display: none; }
