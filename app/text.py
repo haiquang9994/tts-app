@@ -130,7 +130,18 @@ _MD_FENCE = re.compile(r"^\s{0,3}(?:```|~~~).*$", re.MULTILINE)
 # Dòng chỉ gồm ký tự kẻ: gạch ngang phân cách, tiêu đề kiểu gạch chân, hàng
 # ngăn cách của bảng, và front matter.
 _MD_RULE = re.compile(r"^\s{0,3}[-=*_|:\s]{3,}$", re.MULTILINE)
-_MD_HTML_TAG = re.compile(r"</?[A-Za-z][^>]*>")
+# Chỉ những thẻ HTML thật mới bị bỏ. "<daemon exe>" hay "<tên file>" là chỗ giữ
+# chỗ do người viết đặt, nội dung của nó cần được đọc — xoá cả cụm là nuốt mất
+# chữ. Thẻ đóng thì không mang nội dung nên bỏ hết.
+_HTML_TAG_NAMES = (
+    "a|abbr|b|blockquote|br|center|code|details|div|em|font|h[1-6]|hr|i|img|kbd"
+    "|li|mark|ol|p|pre|s|small|span|strong|sub|summary|sup|table|tbody|td|th"
+    "|thead|tr|u|ul"
+)
+_MD_HTML_TAG = re.compile(
+    rf"</[A-Za-z][^>]*>|<(?:{_HTML_TAG_NAMES})(?=[\s/>])[^>]*>", re.IGNORECASE
+)
+_MD_PLACEHOLDER = re.compile(r"<([^\W\d_][^<>\n]*)>")
 _MD_AUTOLINK = re.compile(r"<((?:https?|mailto):[^>\s]+)>")
 _MD_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _MD_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
@@ -171,6 +182,7 @@ def strip_markdown(text: str) -> str:
     # Autolink trước khi bỏ thẻ HTML, nếu không <https://...> bị xoá cả URL.
     text = _MD_AUTOLINK.sub(r"\1", text)
     text = _MD_HTML_TAG.sub(" ", text)
+    text = _MD_PLACEHOLDER.sub(r" \1 ", text)
 
     text = _MD_FOOTNOTE.sub(" ", text)
     text = _MD_IMAGE.sub(r"\1", text)

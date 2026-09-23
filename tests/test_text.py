@@ -264,6 +264,23 @@ def test_inner_underscore_becomes_a_space(raw, expected):
     assert normalize(raw) == expected
 
 
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # Chỗ giữ chỗ trong ngoặc nhọn là NỘI DUNG: đọc phần chữ, bỏ hai dấu <>.
+        ("receipt_of(<daemon exe>) (write probe)", "receipt of( daemon exe ) (write probe)."),
+        ("Chạy <tên file> ngay.", "Chạy tên file ngay."),
+        # Thẻ HTML thật vẫn bị bỏ cả thẻ lẫn thuộc tính.
+        ('Xem <a href="x">liên kết</a> này.', "Xem liên kết này."),
+        ("Dòng<br/>mới và <span class=\"k\">chữ</span>.", "Dòng mới và chữ."),
+        # So sánh có khoảng trắng sau "<" không phải chỗ giữ chỗ.
+        ("Nếu a < b và c > d thì đúng.", "Nếu a < b và c > d thì đúng."),
+    ],
+)
+def test_angle_placeholder_is_read_but_html_tag_is_dropped(raw, expected):
+    assert normalize(raw) == expected
+
+
 def test_setext_heading_underline_is_dropped():
     assert normalize("Tiêu đề\n=======") == "Tiêu đề."
 

@@ -19,7 +19,8 @@ Người dùng thường dán tài liệu Markdown vào. Không lọc thì TTS �
 Xử lý: tiêu đề (cả `#` lẫn kiểu gạch chân `===`, cả đuôi `## Tiêu đề ##`), gạch đầu dòng, danh
 sách đánh số (chỉ phần thụt đầu dòng — số thì giữ, xem dưới), ô đánh dấu việc `- [x]`, trích dẫn `>` kể cả lồng nhau, khối code ` ``` ` và `~~~`,
 đường kẻ ngang, bảng, in đậm/nghiêng/gạch, liên kết (giữ chữ bỏ URL), liên kết tham chiếu và định
-nghĩa của nó, ảnh, chú thích cuối trang, thẻ HTML, autolink.
+nghĩa của nó, ảnh, chú thích cuối trang, thẻ HTML thật (danh sách cố định: `br`, `div`, `span`, `a`...), autolink.
+Chỗ giữ chỗ như `<daemon exe>` không phải thẻ HTML: bỏ hai dấu `<>` nhưng **đọc** phần chữ bên trong.
 
 **Ranh giới — đừng mở rộng bộ lọc này.** Đo bằng thời lượng audio thì gTTS còn phát âm cả
 `% $ = @ & ^ < >`, nhưng chúng là **nội dung chứ không phải cú pháp**: "30%" phải đọc thành "ba
