@@ -57,6 +57,13 @@ const countWords = (s) => (s.trim().match(/\S+/g) || []).length;
 
 const splitBy = (s, re) => (s.match(re) || [s]).map((p) => p.trim()).filter(Boolean);
 
+// Dấu câu chỉ kết mảnh khi theo sau là khoảng trắng hoặc hết chuỗi. Nếu coi mọi
+// dấu chấm là hết câu thì "5.6", "3.12.4" bị cắt thành "5." + "6", rồi khi ghép
+// lại thành "5. 6" hoặc bị ngắt dòng giữa chừng. Chỉ dùng lookahead, không dùng
+// lookbehind (xem chú thích đầu mục).
+const SENTENCE_RE = /(?:[^.!?…]|\.(?=\S))+[.!?…]*\s*/g;
+const CLAUSE_RE = /(?:[^,;:]|[,;:](?=\S))+[,;:]*\s*/g;
+
 const hardSplit = (s, limit) => {
   const words = s.match(/\S+/g) || [];
   const out = [];
@@ -92,13 +99,13 @@ const autoWrap = (text, limit) => {
       if (countWords(paragraph) <= limit) return paragraph.trim();
 
       const pieces = [];
-      for (const sentence of splitBy(paragraph, /[^.!?…]+[.!?…]*\s*/g)) {
+      for (const sentence of splitBy(paragraph, SENTENCE_RE)) {
         if (countWords(sentence) <= limit) {
           pieces.push(sentence);
           continue;
         }
         // Câu tự nó đã quá dài: cắt tiếp ở dấu phẩy, rồi mới cắt cứng theo từ.
-        for (const clause of splitBy(sentence, /[^,;:]+[,;:]*\s*/g)) {
+        for (const clause of splitBy(sentence, CLAUSE_RE)) {
           if (countWords(clause) <= limit) pieces.push(clause);
           else pieces.push(...hardSplit(clause, limit));
         }

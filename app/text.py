@@ -13,6 +13,8 @@ Hai quy tắc, và cả hai đều hẹp có chủ đích:
 * Dấu @ chỉ được tách khoảng trắng khi dính chữ ở CẢ HAI bên, và không bao giờ
   bị xoá — nó là nội dung.
 * Danh sách đánh số giữ lại số; chỉ phần thụt đầu dòng bị bỏ.
+* Gạch dưới giữa từ (mixengine_core) thành khoảng trắng để không bị đọc là "gạch dưới";
+  cụm trông như đường dẫn/URL thì để nguyên.
 
 Nới rộng bất kỳ quy tắc nào cũng phá đường dẫn file, URL, số phiên bản và số
 tiền — chẳng hạn thêm khoảng trắng sau mọi dấu chấm sẽ biến
@@ -151,8 +153,8 @@ _ORDERED_BREAK = re.compile(r"([^\s.!?:;,])[ \t]*\n(?=\s{0,3}\d{1,3}[.)]\s)")
 _MD_ORDERED = re.compile(r"^\s{0,3}(\d{1,3})[.)]\s+", re.MULTILINE)
 _MD_TASK = re.compile(r"^\s{0,3}\[[ xX]\]\s*", re.MULTILINE)
 _MD_MARKS = re.compile(r"[*`~|]+")
-# Gạch dưới chỉ là cú pháp khi đứng ở đầu hoặc cuối từ. Trong Ha_Noi hay
-# snake_case thì nó thuộc về định danh, xoá đi sẽ dính chữ vào nhau.
+# Gạch dưới ở rìa từ là cú pháp in nghiêng nên bỏ ngay ở đây. Gạch dưới GIỮA từ
+# thì xử lý riêng trong normalize (_rewrite_underscores).
 _MD_UNDERSCORE = re.compile(r"(?<![^\W_])_+|_+(?![^\W_])")
 
 
@@ -187,6 +189,23 @@ def strip_markdown(text: str) -> str:
     return _MD_MARKS.sub(" ", text)
 
 
+# Tên định danh như mixengine_core hay Ha_Noi: gTTS đọc "_" thành "gạch dưới".
+# Đổi thành khoảng trắng chứ không xoá, nếu không chữ dính vào nhau thành
+# "mixenginecore". Bỏ qua cụm trông như đường dẫn/URL — chúng giữ nguyên ở đây
+# (edge-tts đọc ổn) và speak_paths tự lo phần gTTS.
+_UNDERSCORE_TOKEN = re.compile(r"\S*_\S*")
+
+
+def _rewrite_underscores(text: str) -> str:
+    def rewrite(match: re.Match[str]) -> str:
+        token = match.group(0)
+        if _PATH_LIKE.fullmatch(token):
+            return token
+        return re.sub(r"_+", " ", token)
+
+    return _UNDERSCORE_TOKEN.sub(rewrite, text)
+
+
 def normalize(text: str) -> str:
     text = strip_markdown(text)
     text = text.replace('"', "")
@@ -195,6 +214,7 @@ def normalize(text: str) -> str:
     # "và `mã`." thành "và mã ." nếu không dọn.
     text = re.sub(r"\s+([,;:.!?])", r"\1", text)
     text = _AT_SIGN.sub(" @ ", text)
+    text = _rewrite_underscores(text)
     text = _rewrite_dates(text)
 
     parts = [p.strip() for p in _SENTENCE_BREAK.split(text) if p and p.strip()]

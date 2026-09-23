@@ -228,7 +228,6 @@ CONTENT_NOT_SYNTAX = [
     "Tăng 30% so với năm ngoái.",
     "Nếu a = b thì đúng.",
     "Giá $5 và 1.500.000 đồng.",
-    "Biến snake_case_name và Ha_Noi.",
     "Đường dẫn app/main.py không đổi.",
     "Phiên bản 3.12.4 ra rồi.",
 ]
@@ -247,6 +246,22 @@ def test_syntax_only_lines_become_empty(raw):
 @pytest.mark.parametrize("raw", CONTENT_NOT_SYNTAX)
 def test_keeps_characters_that_carry_meaning(raw):
     assert normalize(raw) == raw
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("Biến snake_case_name và Ha_Noi.", "Biến snake case name và Ha Noi."),
+        ("Chạy mixengine_core nhé.", "Chạy mixengine core nhé."),
+        ("mixengine_core", "mixengine core."),
+        # Gạch dưới ở rìa từ vẫn là cú pháp Markdown, không đổi hành vi cũ.
+        ("Chữ _nghiêng_ ở đây.", "Chữ nghiêng ở đây."),
+    ],
+)
+def test_inner_underscore_becomes_a_space(raw, expected):
+    # gTTS đọc "_" thành "gạch dưới". Đổi thành khoảng trắng chứ không xoá,
+    # nếu không "mixengine_core" dính thành "mixenginecore".
+    assert normalize(raw) == expected
 
 
 def test_setext_heading_underline_is_dropped():

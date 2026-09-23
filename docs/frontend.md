@@ -43,7 +43,8 @@ lưu trữ sẽ làm nó ném lỗi.
 
 `autoWrap` gộp các câu liền nhau thành từng dòng, chỉ ngắt khi dòng vượt `MAX_WORDS_PER_LINE`
 (50 từ) — không phải mỗi câu một dòng. Câu tự nó đã quá dài thì cắt tiếp ở dấu phẩy, cuối cùng mới
-cắt cứng theo số từ. Xuống dòng có sẵn của người dùng được giữ nguyên.
+cắt cứng theo số từ. Dấu câu chỉ kết câu khi theo sau là khoảng trắng hoặc hết chuỗi, nên
+"5.6", "3.12.4", "1,5" không bị cắt đôi. Xuống dòng có sẵn của người dùng được giữ nguyên.
 
 Nút sửa thẳng nội dung trong ô nhập để người dùng xem lại và chỉnh trước khi thêm vào hàng đợi.
 
