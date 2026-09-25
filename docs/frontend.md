@@ -69,6 +69,19 @@ Trước khi gửi lên server, `prefetch` bỏ qua:
 - Dòng mở/đóng khối code (`isCodeFence`) — ` ```python ` *có* chữ nên lọt bộ lọc trên, lên tới
   server thì bị lọc sạch và trả `422`, làm nháy thông báo lỗi vô ích
 
+## Giao diện sáng/tối
+
+Màu nằm ở biến CSS trên `:root` trong `style.css`. Chưa chọn tay thì theo
+`prefers-color-scheme`; nút ở góc phải trên (`#theme_btn`) ghi đè bằng
+`data-theme="light|dark"` trên `<html>` và lưu vào `localStorage` khoá `__theme__`.
+Chỉ có hai trạng thái, không có nút "trả về theo hệ thống".
+
+**`theme.js` phải nạp đồng bộ trong `<head>`**, không phải cuối `<body>` như `app.js`: nó gán
+`data-theme` trước khi trang được vẽ, nếu không người dùng chọn "tối" sẽ thấy nháy nền trắng.
+
+Bộ màu tối được khai báo **hai lần** trong `style.css` (chọn tay và theo hệ điều hành) — sửa màu
+thì sửa cả hai chỗ. Màu mới phải đi qua biến, không hard-code lại.
+
 ## Kiểm thử
 
 Không có test runner cho JS. Hai cách đang dùng:

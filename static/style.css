@@ -1,3 +1,67 @@
+/* Bảng màu. Bộ tối xuất hiện hai lần vì CSS thuần không có cách dùng chung:
+   một lần cho người dùng chọn tay ([data-theme="dark"]), một lần cho trường
+   hợp chưa chọn mà hệ điều hành đang ở chế độ tối. */
+:root {
+  color-scheme: light;
+  --bg: #fff;
+  --fg: #000;
+  --hint: #666;
+  --btn-bg: beige;
+  --btn-fg: brown;
+  --btn-active: antiquewhite;
+  --ok: #41934c;
+  --err: #b34;
+  --muted: #cacaca;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #16161a;
+  --fg: #e4e4e7;
+  --hint: #a1a1aa;
+  --btn-bg: #3a3229;
+  --btn-fg: #e8b48a;
+  --btn-active: #4d4236;
+  --ok: #6fcf7f;
+  --err: #ff7a8f;
+  --muted: #5a5a63;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #16161a;
+    --fg: #e4e4e7;
+    --hint: #a1a1aa;
+    --btn-bg: #3a3229;
+    --btn-fg: #e8b48a;
+    --btn-active: #4d4236;
+    --ok: #6fcf7f;
+    --err: #ff7a8f;
+    --muted: #5a5a63;
+  }
+}
+
+/* Chỉ bật lúc người dùng bấm nút đổi theme (theme.js gán rồi gỡ class). Để bật
+   thường trực thì mỗi lần tải trang nền sẽ mờ dần từ trắng sang tối — đúng cái
+   nháy chói mắt mà theme.js nạp trong <head> đang tránh. !important vì .btn đã
+   tự khai báo transition riêng. */
+.theme-transition,
+.theme-transition *,
+.theme-transition ::before,
+.theme-transition ::after {
+  transition: background-color 300ms ease, color 300ms ease, border-color 300ms ease !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition ::before,
+  .theme-transition ::after {
+    transition: none !important;
+  }
+}
+
 *, ::after, ::before { box-sizing: border-box; }
 
 body {
@@ -6,14 +70,29 @@ body {
   margin: 0 auto;
   padding: 10px;
   max-width: 720px;
+  background-color: var(--bg);
+  color: var(--fg);
 }
 
 h1 { text-align: center; margin: 10px 0; font-size: 1.6rem; }
 h3 { margin: 16px 0 6px; }
 h1, h3, .panel, .row, .hint { user-select: none; -webkit-user-select: none; }
 
-.hint { margin: 5px 0; font-size: 12px; color: #666; }
+.hint { margin: 5px 0; font-size: 12px; color: var(--hint); }
 
+.theme-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background-color: var(--btn-bg);
+  font-size: 18px;
+  line-height: 36px;
+}
 
 textarea {
   width: 100%;
@@ -32,8 +111,8 @@ textarea {
   line-height: 32px;
   border-radius: 10px;
   border: 0;
-  background-color: beige;
-  color: brown;
+  background-color: var(--btn-bg);
+  color: var(--btn-fg);
   font-size: 22px;
   opacity: 1;
   transition: background-color, opacity 300ms;
@@ -42,7 +121,7 @@ textarea {
   justify-content: center;
 }
 
-.btn:active { background-color: antiquewhite; opacity: 0.5; }
+.btn:active { background-color: var(--btn-active); opacity: 0.5; }
 .btn:disabled { opacity: 0.4; }
 .btn img { height: 32px; }
 .btn-chu { font-family: inherit; font-size: 15px; align-items: center; }
@@ -52,8 +131,8 @@ textarea {
 .btn.pause img.pause-img { display: block; }
 .btn.pause img.play-img { display: none; }
 
-.status { min-height: 1.5em; margin: 4px 0; color: #b34; font-size: 13px; }
+.status { min-height: 1.5em; margin: 4px 0; color: var(--err); font-size: 13px; }
 
-#output { text-align: justify; color: #41934c; }
+#output { text-align: justify; color: var(--ok); }
 #queue { text-align: justify; }
-#output p.dang-tai { color: #cacaca; }
+#output p.dang-tai { color: var(--muted); }

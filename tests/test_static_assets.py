@@ -20,7 +20,7 @@ TEP_TINH = sorted(p for p in STATIC_DIR.rglob("*") if p.is_file())
 
 def test_all_required_static_files_exist():
     ten = {p.name for p in TEP_TINH}
-    assert {"index.html", "about.html", "app.js", "style.css"} <= ten
+    assert {"index.html", "about.html", "app.js", "style.css", "theme.js"} <= ten
     assert {"play.png", "pause.png", "end.png", "check.png", "remove.png"} <= ten
 
 

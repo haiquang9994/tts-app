@@ -30,6 +30,7 @@ def test_js_and_css_get_versions(html):
     ten = {m[0] for m in _V.findall(html)}
     assert "app.js" in ten
     assert "style.css" in ten
+    assert "theme.js" in ten
 
 
 def test_version_matches_real_content_hash(html):
