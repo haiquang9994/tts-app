@@ -115,6 +115,67 @@ const autoWrap = (text, limit) => {
     .join('\n');
 };
 
+/* ---------- Giữ luồng âm thanh luôn mở ----------
+   Mỗi câu là một phần tử <audio> riêng. Giữa hai câu trình duyệt đóng luồng ra
+   thiết bị; tai nghe USB/Bluetooth có DAC riêng nên cho DAC ngủ, câu sau phải
+   đợi nó khởi động lại và nuốt mất 1-2 chữ đầu. Loa onboard không bị. Một
+   AudioContext chạy song song giữ luồng mở để thiết bị không bao giờ ngủ giữa
+   hai câu. */
+
+// Không phát gì quá ngần này thì tạm dừng AudioContext cho đỡ tốn pin. Chỉ câu
+// đầu tiên sau một lúc nghỉ dài như vậy mới có thể bị hụt chữ.
+const KEEP_ALIVE_IDLE_MS = 30000;
+// Không dùng im lặng tuyệt đối: nhiều DAC tự tắt ampli khi nhận toàn số 0,
+// nên vẫn ngủ dù luồng còn mở. Nhiễu -80 dBFS thì tai không nghe thấy.
+const KEEP_ALIVE_LEVEL = 1e-4;
+
+const AudioKeepAlive = function () {
+  this.ctx = null;
+  this.idle_since = null;
+
+  // Chỉ được tạo AudioContext trong một thao tác của người dùng, nếu không
+  // trình duyệt tạo ra ở trạng thái suspended.
+  this.init = () => {
+    if (this.ctx) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    try {
+      const ctx = new Ctx();
+      const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * KEEP_ALIVE_LEVEL;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      source.connect(ctx.destination);
+      source.start();
+      this.ctx = ctx;
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  this.wake = () => {
+    this.idle_since = null;
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch((e) => console.error(e));
+    }
+  };
+
+  // Gọi mỗi tick: đang bận thì giữ chạy, rảnh đủ lâu thì tạm dừng.
+  this.update = (active) => {
+    if (!this.ctx) return;
+    if (active) {
+      this.wake();
+      return;
+    }
+    if (this.idle_since === null) this.idle_since = Date.now();
+    if (this.ctx.state === 'running' && Date.now() - this.idle_since > KEEP_ALIVE_IDLE_MS) {
+      this.ctx.suspend().catch((e) => console.error(e));
+    }
+  };
+};
+
 /* ---------- Hàng đợi đọc ---------- */
 
 const RunAudio = function (params) {
@@ -128,20 +189,27 @@ const RunAudio = function (params) {
   this.queueEl = params.queueEl;
   this.statusEl = params.statusEl;
   this.playPauseEl = params.playPauseEl;
+  this.keep_alive = new AudioKeepAlive();
 
   this.run = () => {
     this.add_event_play_pause(params.playPauseEl);
     this.add_event_next(params.nextEl);
     this.add_event_remove_all(params.removeAllEl);
+    this.add_event_keep_alive();
     this.load_base64_items();
     this.load_queue_texts();
     setInterval(this.tick, TICK_MS);
   };
 
   this.tick = () => {
+    this.keep_alive.update(this.is_active());
     this.prefetch();
     this.play_next();
   };
+
+  // Đang tải câu kế tiếp cũng tính là bận: khoảng chờ đó chính là lúc thiết
+  // bị dễ ngủ nhất.
+  this.is_active = () => this.loading || (this.media !== null && !this.media.paused);
 
   this.prefetch = () => {
     if (this.loading) return;
@@ -216,6 +284,7 @@ const RunAudio = function (params) {
       this.media = null;
     };
     this.media = media;
+    this.keep_alive.wake();
     media.play().catch((e) => {
       // Trình duyệt chặn tự phát khi người dùng chưa tương tác với trang.
       console.error(e);
@@ -313,6 +382,7 @@ const RunAudio = function (params) {
   this.toggle_play_pause = () => {
     if (!this.media) return;
     if (this.media.paused) {
+      this.keep_alive.wake();
       this.media.play().catch((e) => console.error(e));
     } else {
       this.media.pause();
@@ -326,6 +396,15 @@ const RunAudio = function (params) {
         e.preventDefault();
         this.toggle_play_pause();
       }
+    });
+  };
+
+  // Bất kỳ thao tác nào trên trang đều đủ để trình duyệt cho tạo AudioContext;
+  // không đợi riêng nút phát vì thường người dùng bấm nút thêm vào hàng đợi rồi để
+  // tự phát, không chạm tới nút phát.
+  this.add_event_keep_alive = () => {
+    ['click', 'keydown', 'touchend'].forEach((type) => {
+      window.addEventListener(type, this.keep_alive.init, true);
     });
   };
 

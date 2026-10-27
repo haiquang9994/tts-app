@@ -39,6 +39,17 @@ lưu trữ sẽ làm nó ném lỗi.
 
 **Escape HTML khi render.** Hàng đợi và danh sách đã sẵn sàng được ghi bằng `innerHTML`.
 
+**Giữ luồng âm thanh luôn mở (`AudioKeepAlive`).** Mỗi câu là một phần tử `<audio>` riêng, giữa
+hai câu trình duyệt đóng luồng ra thiết bị. Tai nghe USB/Bluetooth có DAC riêng nên cho DAC ngủ,
+câu sau phải đợi nó khởi động lại và mất 1-2 chữ đầu; loa onboard không bị. Một `AudioContext`
+phát nhiễu -80 dBFS (không nghe thấy) chạy song song để thiết bị không ngủ:
+
+- Tạo ở thao tác đầu tiên của người dùng trên trang (`click`/`keydown`/`touchend`) — tạo ngoài
+  thao tác thì trình duyệt để nó ở trạng thái suspended.
+- Không dùng im lặng tuyệt đối: nhiều DAC tự tắt ampli khi nhận toàn số 0.
+- Không phát và không tải gì quá 30 giây thì `suspend()` cho đỡ tốn pin; chỉ câu đầu tiên sau lúc
+  nghỉ dài đó mới có thể hụt chữ.
+
 ## Nút "Xuống dòng"
 
 `autoWrap` gộp các câu liền nhau thành từng dòng, chỉ ngắt khi dòng vượt `MAX_WORDS_PER_LINE`
