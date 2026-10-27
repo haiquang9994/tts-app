@@ -120,36 +120,47 @@ const autoWrap = (text, limit) => {
    thiết bị; tai nghe USB/Bluetooth có DAC riêng nên cho DAC ngủ, câu sau phải
    đợi nó khởi động lại và nuốt mất 1-2 chữ đầu. Loa onboard không bị. Một
    AudioContext chạy song song giữ luồng mở để thiết bị không bao giờ ngủ giữa
-   hai câu. */
+   hai câu.
 
-// Không phát gì quá ngần này thì tạm dừng AudioContext cho đỡ tốn pin. Chỉ câu
-// đầu tiên sau một lúc nghỉ dài như vậy mới có thể bị hụt chữ.
-const KEEP_ALIVE_IDLE_MS = 30000;
-// Không dùng im lặng tuyệt đối: nhiều DAC tự tắt ampli khi nhận toàn số 0,
-// nên vẫn ngủ dù luồng còn mở. Nhiễu -80 dBFS thì tai không nghe thấy.
-const KEEP_ALIVE_LEVEL = 1e-4;
+   Tín hiệu đủ lớn để DAC thức thì Chrome cũng coi là "đang phát" và hiện icon
+   loa trên tab — không tránh được. Vì vậy chỉ chạy khi thật sự đang đọc, lúc
+   đó tab vốn đã có icon. */
+
+// Rảnh quá ngần này thì tạm dừng (tắt icon loa, đỡ tốn pin). Phải dài hơn hẳn
+// khoảng nghỉ giữa hai câu (dưới 1 giây). Chỉ câu đầu tiên sau một lúc nghỉ
+// dài hơn ngần này mới có thể bị hụt chữ.
+const KEEP_ALIVE_IDLE_MS = 5000;
+// Sóng 15 Hz: dưới ngưỡng nghe của tai người, tai nghe/loa nhỏ gần như không
+// phát ra được, nhưng DAC vẫn nhận mẫu khác 0. Đã thử trên tai nghe USB thật:
+// nhiễu -80 dBFS (1e-4) KHÔNG đủ — sau bộ chỉnh âm lượng nó gần như về 0, DAC
+// coi là im lặng và vẫn ngủ. Biên độ 0.02 (~-34 dBFS) thì giữ được.
+const KEEP_ALIVE_FREQ_HZ = 15;
+const KEEP_ALIVE_GAIN = 0.02;
 
 const AudioKeepAlive = function () {
   this.ctx = null;
   this.idle_since = null;
 
   // Chỉ được tạo AudioContext trong một thao tác của người dùng, nếu không
-  // trình duyệt tạo ra ở trạng thái suspended.
+  // trình duyệt tạo ra ở trạng thái suspended. Tạo xong thì tạm dừng ngay —
+  // thao tác có thể chỉ là bấm đổi giao diện; update() sẽ bật lại khi đọc. Sau
+  // lần thao tác đầu tiên, trình duyệt cho resume() mà không cần thao tác mới.
   this.init = () => {
     if (this.ctx) return;
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     try {
       const ctx = new Ctx();
-      const buffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * KEEP_ALIVE_LEVEL;
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      source.loop = true;
-      source.connect(ctx.destination);
-      source.start();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = KEEP_ALIVE_FREQ_HZ;
+      gain.gain.value = KEEP_ALIVE_GAIN;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
       this.ctx = ctx;
+      this.idle_since = null;
+      ctx.suspend().catch((e) => console.error(e));
     } catch (e) {
       console.error(e);
     }
@@ -207,9 +218,13 @@ const RunAudio = function (params) {
     this.play_next();
   };
 
-  // Đang tải câu kế tiếp cũng tính là bận: khoảng chờ đó chính là lúc thiết
-  // bị dễ ngủ nhất.
-  this.is_active = () => this.loading || (this.media !== null && !this.media.paused);
+  // Người dùng bấm tạm dừng thì coi là rảnh. Ngoài ra, còn câu chờ đọc hay đang
+  // tải câu kế tiếp đều tính là bận: khoảng chờ đó chính là lúc thiết bị dễ ngủ
+  // nhất.
+  this.is_active = () => {
+    if (this.media) return !this.media.paused;
+    return this.loading || this.base64_items.length > 0 || this.queue_texts.length > 0;
+  };
 
   this.prefetch = () => {
     if (this.loading) return;

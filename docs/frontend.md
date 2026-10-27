@@ -42,13 +42,17 @@ lưu trữ sẽ làm nó ném lỗi.
 **Giữ luồng âm thanh luôn mở (`AudioKeepAlive`).** Mỗi câu là một phần tử `<audio>` riêng, giữa
 hai câu trình duyệt đóng luồng ra thiết bị. Tai nghe USB/Bluetooth có DAC riêng nên cho DAC ngủ,
 câu sau phải đợi nó khởi động lại và mất 1-2 chữ đầu; loa onboard không bị. Một `AudioContext`
-phát nhiễu -80 dBFS (không nghe thấy) chạy song song để thiết bị không ngủ:
+phát sóng 15 Hz biên độ 0.02 chạy song song để thiết bị không ngủ:
 
-- Tạo ở thao tác đầu tiên của người dùng trên trang (`click`/`keydown`/`touchend`) — tạo ngoài
-  thao tác thì trình duyệt để nó ở trạng thái suspended.
-- Không dùng im lặng tuyệt đối: nhiều DAC tự tắt ampli khi nhận toàn số 0.
-- Không phát và không tải gì quá 30 giây thì `suspend()` cho đỡ tốn pin; chỉ câu đầu tiên sau lúc
-  nghỉ dài đó mới có thể hụt chữ.
+- **Mức tín hiệu đã đo trên tai nghe USB thật.** Nhiễu -80 dBFS không đủ: sau bộ chỉnh âm lượng
+  nó gần như về 0, DAC coi là im lặng và vẫn ngủ. Biên độ 0.02 (~-34 dBFS) thì giữ được. Chọn
+  15 Hz vì dưới ngưỡng nghe và tai nghe/loa nhỏ gần như không phát ra được.
+- **Icon loa trên tab là không tránh được.** Tín hiệu đủ lớn để DAC thức thì Chrome cũng coi là
+  đang phát. Vì vậy chỉ chạy khi đang đọc (đang phát, đang tải, hoặc còn câu chờ mà người dùng
+  chưa bấm tạm dừng); rảnh 5 giây thì `suspend()`. Chỉ câu đầu tiên sau lúc nghỉ dài hơn 5 giây
+  mới có thể hụt chữ.
+- Tạo ở thao tác đầu tiên của người dùng trên trang (`click`/`keydown`/`touchend`) rồi `suspend()`
+  ngay — tạo ngoài thao tác thì trình duyệt để nó ở trạng thái suspended và không bật lại được.
 
 ## Nút "Xuống dòng"
 
