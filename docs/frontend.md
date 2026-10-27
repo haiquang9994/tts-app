@@ -11,6 +11,9 @@
   tối đa 3 mục để phát liên tục không bị khựng.
 - **`play_next`** — nếu chưa có audio nào đang phát thì lấy mục đầu ra phát.
 
+Câu nối câu không đợi tick: `onended` hẹn phát câu kế tiếp sau đúng `SENTENCE_GAP_MS` (300ms).
+Trước đây khoảng nghỉ phụ thuộc nhịp tick nên dao động 0-500ms.
+
 Hai khoá `localStorage`: `__queue_texts__` (dòng chờ xử lý) và `__base64_items__` (audio đã sẵn
 sàng). Câu đang xử lý được lưu kèm hàng đợi, nên đóng tab giữa chừng không mất nội dung.
 
@@ -47,12 +50,15 @@ phát sóng 15 Hz biên độ 0.02 chạy song song để thiết bị không ng
 - **Mức tín hiệu đã đo trên tai nghe USB thật.** Nhiễu -80 dBFS không đủ: sau bộ chỉnh âm lượng
   nó gần như về 0, DAC coi là im lặng và vẫn ngủ. Biên độ 0.02 (~-34 dBFS) thì giữ được. Chọn
   15 Hz vì dưới ngưỡng nghe và tai nghe/loa nhỏ gần như không phát ra được.
-- **Icon loa trên tab là không tránh được.** Tín hiệu đủ lớn để DAC thức thì Chrome cũng coi là
-  đang phát. Vì vậy chỉ chạy khi đang đọc (đang phát, đang tải, hoặc còn câu chờ mà người dùng
-  chưa bấm tạm dừng); rảnh 5 giây thì `suspend()`. Chỉ câu đầu tiên sau lúc nghỉ dài hơn 5 giây
-  mới có thể hụt chữ.
-- Tạo ở thao tác đầu tiên của người dùng trên trang (`click`/`keydown`/`touchend`) rồi `suspend()`
-  ngay — tạo ngoài thao tác thì trình duyệt để nó ở trạng thái suspended và không bật lại được.
+- **Icon loa trên tab là không tránh được** khi luồng chạy: tín hiệu đủ lớn để DAC thức thì Chrome
+  cũng coi là đang phát. Vì vậy luồng chỉ chạy khi đang phát hoặc giữa hai câu đã sẵn sàng nối
+  tiếp nhau. Mới tải trang (chưa tạo `AudioContext`), bấm tạm dừng, hay hết câu sẵn sàng vì API
+  chậm thì `suspend()` ngay — không có icon.
+- **Warm-up trước khi phát.** Mọi lần phát đi qua `start_media`: luồng đang tắt thì `resume()`, đợi
+  `KEEP_ALIVE_WARMUP_MS` (600ms) cho DAC thức rồi mới `play()`. Câu nối câu thì luồng vẫn chạy nên
+  phát ngay, không thêm độ trễ. Bấm tạm dừng giữa lúc warm-up là huỷ.
+- `resume()` có thể treo nếu trang chưa có thao tác nào, nên chỉ chờ tối đa 1 giây rồi cứ phát.
+- Safari iOS có thể chặn `play()` sau warm-up vì nó không còn nằm trong thao tác của người dùng.
 
 ## Nút "Xuống dòng"
 

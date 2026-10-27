@@ -2,6 +2,9 @@
 
 const PREFETCH_SIZE = 3;
 const TICK_MS = 500;
+// Khoảng nghỉ giữa hai câu liền nhau. Trước đây phụ thuộc nhịp tick nên dao
+// động 0-500ms (trung bình ~250ms); cố định 300ms cho nhịp đọc đều.
+const SENTENCE_GAP_MS = 300;
 // Đoạn dài hơn ngần này từ thì nút "Xuống dòng" mới cắt.
 const MAX_WORDS_PER_LINE = 50;
 
@@ -123,13 +126,16 @@ const autoWrap = (text, limit) => {
    hai câu.
 
    Tín hiệu đủ lớn để DAC thức thì Chrome cũng coi là "đang phát" và hiện icon
-   loa trên tab — không tránh được. Vì vậy chỉ chạy khi thật sự đang đọc, lúc
-   đó tab vốn đã có icon. */
+   loa trên tab — không tránh được. Vì vậy chỉ chạy khi đang phát hoặc giữa hai
+   câu đã sẵn sàng nối tiếp nhau; tạm dừng, hết câu sẵn sàng thì tắt ngay. Bật
+   lại thì phải chờ DAC thức (warm-up) rồi mới phát câu. */
 
-// Rảnh quá ngần này thì tạm dừng (tắt icon loa, đỡ tốn pin). Phải dài hơn hẳn
-// khoảng nghỉ giữa hai câu (dưới 1 giây). Chỉ câu đầu tiên sau một lúc nghỉ
-// dài hơn ngần này mới có thể bị hụt chữ.
-const KEEP_ALIVE_IDLE_MS = 5000;
+// Thời gian chờ DAC thức sau khi bật lại luồng. Phần bị nuốt trước đây là 1-2
+// chữ, tức khoảng 0.3-0.6 giây.
+const KEEP_ALIVE_WARMUP_MS = 600;
+// resume() có thể treo mãi nếu trình duyệt chưa cho phát (trang chưa có thao
+// tác nào). Không được để câu đọc kẹt theo, quá hạn thì cứ phát.
+const KEEP_ALIVE_RESUME_TIMEOUT_MS = 1000;
 // Sóng 15 Hz: dưới ngưỡng nghe của tai người, tai nghe/loa nhỏ gần như không
 // phát ra được, nhưng DAC vẫn nhận mẫu khác 0. Đã thử trên tai nghe USB thật:
 // nhiễu -80 dBFS (1e-4) KHÔNG đủ — sau bộ chỉnh âm lượng nó gần như về 0, DAC
@@ -137,16 +143,16 @@ const KEEP_ALIVE_IDLE_MS = 5000;
 const KEEP_ALIVE_FREQ_HZ = 15;
 const KEEP_ALIVE_GAIN = 0.02;
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const AudioKeepAlive = function () {
   this.ctx = null;
-  this.idle_since = null;
+  this.awake = false;
+  this.warming = null;
 
-  // Chỉ được tạo AudioContext trong một thao tác của người dùng, nếu không
-  // trình duyệt tạo ra ở trạng thái suspended. Tạo xong thì tạm dừng ngay —
-  // thao tác có thể chỉ là bấm đổi giao diện; update() sẽ bật lại khi đọc. Sau
-  // lần thao tác đầu tiên, trình duyệt cho resume() mà không cần thao tác mới.
-  this.init = () => {
-    if (this.ctx) return;
+  // Chỉ tạo khi sắp phát câu đầu tiên, không tạo lúc tải trang: AudioContext
+  // tồn tại sớm là nguồn gây icon loa khi chưa đọc gì.
+  this.create = () => {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     try {
@@ -159,31 +165,39 @@ const AudioKeepAlive = function () {
       gain.connect(ctx.destination);
       osc.start();
       this.ctx = ctx;
-      this.idle_since = null;
-      ctx.suspend().catch((e) => console.error(e));
     } catch (e) {
       console.error(e);
     }
   };
 
+  // Bật luồng; promise xong khi DAC đã kịp thức. Luồng đang chạy sẵn (câu nối
+  // câu) thì xong ngay, không thêm độ trễ.
   this.wake = () => {
-    this.idle_since = null;
-    if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume().catch((e) => console.error(e));
-    }
+    this.awake = true;
+    if (!this.ctx) this.create();
+    if (!this.ctx) return Promise.resolve();
+    if (this.warming) return this.warming;
+    if (this.ctx.state === 'running') return Promise.resolve();
+    const warming = Promise.race([this.ctx.resume(), delay(KEEP_ALIVE_RESUME_TIMEOUT_MS)])
+      .then(() => delay(KEEP_ALIVE_WARMUP_MS))
+      .catch((e) => console.error(e));
+    this.warming = warming;
+    warming.then(() => {
+      if (this.warming === warming) this.warming = null;
+    });
+    return warming;
   };
 
-  // Gọi mỗi tick: đang bận thì giữ chạy, rảnh đủ lâu thì tạm dừng.
-  this.update = (active) => {
-    if (!this.ctx) return;
-    if (active) {
-      this.wake();
-      return;
-    }
-    if (this.idle_since === null) this.idle_since = Date.now();
-    if (this.ctx.state === 'running' && Date.now() - this.idle_since > KEEP_ALIVE_IDLE_MS) {
-      this.ctx.suspend().catch((e) => console.error(e));
-    }
+  // Gọi suspend() kể cả khi resume() chưa xong: AudioContext xử lý hai lệnh
+  // theo thứ tự nên trạng thái cuối vẫn là suspended. Chỉ kiểm tra state ở đây
+  // thì bấm tạm dừng giữa lúc warm-up sẽ để luồng chạy mãi.
+  // Bỏ luôn warm-up đang dở: lần wake() sau phải resume() lại từ đầu, vì
+  // suspend() vừa gọi sẽ chạy sau resume() cũ.
+  this.sleep = () => {
+    if (!this.awake) return;
+    this.awake = false;
+    this.warming = null;
+    if (this.ctx) this.ctx.suspend().catch((e) => console.error(e));
   };
 };
 
@@ -201,29 +215,26 @@ const RunAudio = function (params) {
   this.statusEl = params.statusEl;
   this.playPauseEl = params.playPauseEl;
   this.keep_alive = new AudioKeepAlive();
+  // Câu đang chờ warm-up, chưa gọi play(). Bấm tạm dừng lúc này thì huỷ nó.
+  this.starting = null;
+  // Mốc sớm nhất được phát câu kế tiếp, để giữ khoảng nghỉ cố định giữa hai câu.
+  this.next_at = 0;
 
   this.run = () => {
     this.add_event_play_pause(params.playPauseEl);
     this.add_event_next(params.nextEl);
     this.add_event_remove_all(params.removeAllEl);
-    this.add_event_keep_alive();
     this.load_base64_items();
     this.load_queue_texts();
     setInterval(this.tick, TICK_MS);
   };
 
   this.tick = () => {
-    this.keep_alive.update(this.is_active());
     this.prefetch();
     this.play_next();
-  };
-
-  // Người dùng bấm tạm dừng thì coi là rảnh. Ngoài ra, còn câu chờ đọc hay đang
-  // tải câu kế tiếp đều tính là bận: khoảng chờ đó chính là lúc thiết bị dễ ngủ
-  // nhất.
-  this.is_active = () => {
-    if (this.media) return !this.media.paused;
-    return this.loading || this.base64_items.length > 0 || this.queue_texts.length > 0;
+    // Hết câu sẵn sàng (API chậm, hoặc đã đọc hết) thì tắt luồng giữ thức để
+    // không hiện icon loa; câu sau sẽ warm-up lại trước khi phát.
+    if (!this.media && this.base64_items.length === 0) this.keep_alive.sleep();
   };
 
   this.prefetch = () => {
@@ -274,22 +285,27 @@ const RunAudio = function (params) {
   this.play_next = () => {
     if (this.media) return;
     if (this.base64_items.length === 0) return;
+    if (Date.now() < this.next_at) return;
 
     const item = this.base64_items[0];
     const media = new Audio('data:audio/mpeg;base64,' + item.base64);
-    media.onplay = () => {
-      this.playPauseEl.classList.remove('play');
-      this.playPauseEl.classList.add('pause');
-    };
+    media.onplay = () => this.set_play_button(true);
     media.onpause = () => {
-      this.playPauseEl.classList.remove('pause');
-      this.playPauseEl.classList.add('play');
+      this.set_play_button(false);
+      // Trình duyệt cũng phát sự kiện pause khi hết câu. Lúc đó không được tắt
+      // luồng, câu kế tiếp nối ngay sau.
+      if (!media.ended) this.keep_alive.sleep();
     };
     media.onended = () => {
       this.base64_items.shift();
       this.render_base64_items();
       this.save_base64_items();
       this.media = null;
+      // Không đợi tick (0-500ms, lúc nhanh lúc chậm): nghỉ đúng một khoảng cố
+      // định rồi phát câu kế tiếp nếu đã sẵn sàng.
+      this.next_at = Date.now() + SENTENCE_GAP_MS;
+      if (this.base64_items.length === 0) this.keep_alive.sleep();
+      else setTimeout(this.play_next, SENTENCE_GAP_MS);
     };
     media.onerror = () => {
       console.error('Không phát được audio, bỏ qua câu này.');
@@ -299,12 +315,31 @@ const RunAudio = function (params) {
       this.media = null;
     };
     this.media = media;
-    this.keep_alive.wake();
-    media.play().catch((e) => {
-      // Trình duyệt chặn tự phát khi người dùng chưa tương tác với trang.
-      console.error(e);
-      this.set_status('Bấm nút phát để bắt đầu.');
+    this.start_media(media);
+  };
+
+  // Mọi lần phát (câu mới, phát tiếp sau tạm dừng) đều qua đây: bật luồng giữ
+  // thức, đợi DAC thức rồi mới play(). Câu nối câu thì wake() xong ngay.
+  this.start_media = (media) => {
+    this.starting = media;
+    this.set_play_button(true);
+    this.keep_alive.wake().then(() => {
+      // Bị huỷ trong lúc chờ: tạm dừng, xoá hết, hoặc câu lỗi đã bị bỏ qua.
+      if (this.starting !== media || this.media !== media) return;
+      this.starting = null;
+      media.play().catch((e) => {
+        // Trình duyệt chặn tự phát khi người dùng chưa tương tác với trang.
+        console.error(e);
+        this.set_play_button(false);
+        this.keep_alive.sleep();
+        this.set_status('Bấm nút phát để bắt đầu.');
+      });
     });
+  };
+
+  this.set_play_button = (playing) => {
+    this.playPauseEl.classList.toggle('pause', playing);
+    this.playPauseEl.classList.toggle('play', !playing);
   };
 
   this.set_status = (message) => {
@@ -396,9 +431,13 @@ const RunAudio = function (params) {
 
   this.toggle_play_pause = () => {
     if (!this.media) return;
-    if (this.media.paused) {
-      this.keep_alive.wake();
-      this.media.play().catch((e) => console.error(e));
+    if (this.starting === this.media) {
+      // Đang chờ warm-up, chưa phát: bấm lần nữa là huỷ.
+      this.starting = null;
+      this.keep_alive.sleep();
+      this.set_play_button(false);
+    } else if (this.media.paused) {
+      this.start_media(this.media);
     } else {
       this.media.pause();
     }
@@ -414,15 +453,6 @@ const RunAudio = function (params) {
     });
   };
 
-  // Bất kỳ thao tác nào trên trang đều đủ để trình duyệt cho tạo AudioContext;
-  // không đợi riêng nút phát vì thường người dùng bấm nút thêm vào hàng đợi rồi để
-  // tự phát, không chạm tới nút phát.
-  this.add_event_keep_alive = () => {
-    ['click', 'keydown', 'touchend'].forEach((type) => {
-      window.addEventListener(type, this.keep_alive.init, true);
-    });
-  };
-
   this.add_event_next = (ele) => {
     ele.addEventListener('click', () => {
       if (!this.media) return;
@@ -435,6 +465,9 @@ const RunAudio = function (params) {
     ele.addEventListener('click', () => {
       if (this.media && !this.media.paused) this.media.pause();
       this.media = null;
+      this.starting = null;
+      this.keep_alive.sleep();
+      this.set_play_button(false);
       this.queue_texts = [];
       this.base64_items = [];
       this.backoff_until = 0;
